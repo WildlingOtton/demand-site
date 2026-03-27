@@ -30,6 +30,7 @@
           <td style="white-space:nowrap;">
             <% if (u.id !== currentUserId) { %>
               <form action="/admin/users/<%= u.id %>/role" method="POST" style="display:inline;gap:0.5rem;">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                 <select name="role" style="width:auto;padding:0.3rem 0.5rem;font-size:0.82rem;">
                   <% Object.entries(roles).forEach(function([key, val]) { %>
                     <option value="<%= val %>" <%= u.role === val ? 'selected' : '' %>>
@@ -40,6 +41,7 @@
                 <button type="submit" class="btn btn-secondary btn-sm" style="margin-left:0.4rem;">Update</button>
               </form>
               <form action="/admin/users/<%= u.id %>/delete" method="POST" style="display:inline;" onsubmit="return confirm('Delete user <%= u.username %>?');">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                 <button type="submit" class="btn btn-danger btn-sm" style="margin-left:0.4rem;">Delete</button>
               </form>
             <% } else { %>

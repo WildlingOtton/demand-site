@@ -9,6 +9,7 @@
 
 <div class="card" style="max-width:680px;">
   <form action="<%= demand ? '/demands/' + demand.id : '/demands' %>" method="POST">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
     <div class="form-group">
       <label for="title">Title <span style="color:#d93025;">*</span></label>
       <input type="text" id="title" name="title" required value="<%= demand ? demand.title : '' %>" maxlength="200" />

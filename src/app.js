@@ -5,6 +5,8 @@ const flash = require('connect-flash');
 const expressLayouts = require('express-ejs-layouts');
 const path = require('path');
 const fs = require('fs');
+const { csrfSync } = require('csrf-sync');
+const rateLimit = require('express-rate-limit');
 
 const { sequelize } = require('./models');
 const authRoutes = require('./routes/auth');
@@ -47,13 +49,35 @@ app.use(
 // Flash messages
 app.use(flash());
 
+// CSRF protection (synchronizer token pattern, requires session)
+const { generateToken, csrfSynchronisedProtection } = csrfSync({
+  getTokenFromRequest: (req) =>
+    req.body && req.body._csrf ? req.body._csrf : undefined,
+});
+app.use(csrfSynchronisedProtection);
+
+// Make CSRF token available to all views
+app.use((req, res, next) => {
+  res.locals.csrfToken = generateToken(req);
+  next();
+});
+
+// Auth rate limiting – max 20 attempts per 15 minutes per IP
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: 'Too many requests, please try again later.',
+});
+
 // Routes
 app.get('/', (req, res) => {
   if (req.session.userId) return res.redirect('/demands');
   res.redirect('/auth/login');
 });
 
-app.use('/auth', authRoutes);
+app.use('/auth', authLimiter, authRoutes);
 app.use('/demands', demandsRoutes);
 app.use('/admin', adminRoutes);
 
@@ -69,6 +93,10 @@ app.use((req, res) => {
 
 // Error handler
 app.use((err, req, res, _next) => {
+  if (err.status === 403 && err.message && err.message.toLowerCase().includes('csrf')) {
+    req.flash('error', 'Session expired or invalid request. Please try again.');
+    return res.redirect('back');
+  }
   console.error(err);
   res.status(500).render('500', {
     title: 'Server Error',
