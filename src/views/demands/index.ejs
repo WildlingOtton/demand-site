@@ -7,8 +7,27 @@
 
 <div class="page-header">
   <h1>Demands</h1>
-  <a href="/demands/new" class="btn btn-primary">+ New Demand</a>
+  <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+    <a href="/demands/export" class="btn btn-secondary">&#8595; Export CSV</a>
+    <a href="/demands/new" class="btn btn-primary">+ New Demand</a>
+  </div>
 </div>
+
+<details style="margin-bottom:1.5rem;">
+  <summary style="cursor:pointer;font-weight:500;color:#1a73e8;padding:0.4rem 0;display:inline-block;">&#8593; Import from CSV</summary>
+  <div class="card" style="margin-top:0.75rem;padding:1.5rem;">
+    <form action="/demands/import" method="POST" enctype="multipart/form-data">
+      <div class="form-group">
+        <label for="csvFile">CSV File</label>
+        <input type="file" id="csvFile" name="csvFile" accept=".csv" required style="width:100%;padding:0.4rem 0;border:none;font-size:0.9rem;">
+        <small style="color:#666;display:block;margin-top:0.4rem;">
+          Required column: <strong>title</strong>. Optional columns: <strong>description</strong>, <strong>department</strong>, <strong>numberOfPositions</strong>, <strong>status</strong> (open, in_progress, filled, cancelled).
+        </small>
+      </div>
+      <button type="submit" class="btn btn-primary">Import</button>
+    </form>
+  </div>
+</details>
 
 <% if (demands.length === 0) { %>
   <div class="card" style="text-align:center;padding:3rem;">
