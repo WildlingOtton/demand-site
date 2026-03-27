@@ -1,0 +1,64 @@
+<% if (error && error.length) { %>
+  <div class="alert alert-error"><%= error %></div>
+<% } %>
+<% if (success && success.length) { %>
+  <div class="alert alert-success"><%= success %></div>
+<% } %>
+
+<div class="page-header">
+  <h1>Demands</h1>
+  <a href="/demands/new" class="btn btn-primary">+ New Demand</a>
+</div>
+
+<% if (demands.length === 0) { %>
+  <div class="card" style="text-align:center;padding:3rem;">
+    <p style="color:#666;margin-bottom:1rem;">No demands found.</p>
+    <a href="/demands/new" class="btn btn-primary">Create the first demand</a>
+  </div>
+<% } else { %>
+  <div class="card" style="padding:0;">
+    <table>
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Department</th>
+          <th>Positions</th>
+          <th>Status</th>
+          <th>Created By</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% demands.forEach(function(demand) { %>
+          <% const canEdit = user.role === 'admin' || user.role === 'hiring_manager' || demand.createdBy === user.id; %>
+          <tr>
+            <td><strong><%= demand.title %></strong></td>
+            <td><%= demand.department || '—' %></td>
+            <td><%= demand.numberOfPositions %></td>
+            <td>
+              <span class="badge" style="
+                <% if (demand.status === 'open') { %>background:#e6f4ea;color:#137333;<% } %>
+                <% if (demand.status === 'in_progress') { %>background:#e8f0fe;color:#1a73e8;<% } %>
+                <% if (demand.status === 'filled') { %>background:#fce8e6;color:#c5221f;<% } %>
+                <% if (demand.status === 'cancelled') { %>background:#f1f3f4;color:#666;<% } %>
+              ">
+                <%= demand.status.replace('_', ' ') %>
+              </span>
+            </td>
+            <td><%= demand.creator ? demand.creator.username : '—' %></td>
+            <td style="white-space:nowrap;">
+              <% if (canEdit) { %>
+                <a href="/demands/<%= demand.id %>/edit" class="btn btn-secondary btn-sm">Edit</a>
+              <% } %>
+              <% if (user.role === 'admin') { %>
+                <form action="/demands/<%= demand.id %>/delete" method="POST" style="display:inline;" onsubmit="return confirm('Delete this demand?');">
+                  <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                </form>
+              <% } %>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+<% } %>
