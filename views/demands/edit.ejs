@@ -1,0 +1,10 @@
+<%- include('../partials/header') %>
+
+<div class="page-header">
+  <h1>Edit Demand</h1>
+  <p class="subtitle"><a href="/demands/<%= demand.id %>">← Back to demand</a></p>
+</div>
+
+<%- include('../partials/demandForm', { demand: demand, ROLE_TYPES: ROLE_TYPES, ROLE_LABELS: ROLE_LABELS, errors: errors, formAction: '/demands/' + demand.id + '/edit' }) %>
+
+<%- include('../partials/footer') %>

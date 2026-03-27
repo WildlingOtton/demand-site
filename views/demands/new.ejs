@@ -1,0 +1,15 @@
+<%- include('../partials/header') %>
+
+<div class="page-header">
+  <h1>Create New Demand</h1>
+  <% if (demand.role_type) { %>
+    <p class="subtitle">Using template: <strong><%= ROLE_LABELS[demand.role_type] || demand.role_type %></strong>
+      &mdash; <a href="/demands/templates">Change template</a></p>
+  <% } else { %>
+    <p class="subtitle"><a href="/demands/templates">Select a template</a> to pre-fill this form.</p>
+  <% } %>
+</div>
+
+<%- include('../partials/demandForm', { demand: demand, ROLE_TYPES: ROLE_TYPES, ROLE_LABELS: ROLE_LABELS, errors: errors, formAction: '/demands' }) %>
+
+<%- include('../partials/footer') %>

@@ -14,6 +14,11 @@ module.exports = function (sequelize) {
       autoIncrement: true,
       primaryKey: true,
     },
+    demandId: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      unique: true,
+    },
     title: {
       type: DataTypes.STRING,
       allowNull: false,
@@ -50,6 +55,12 @@ module.exports = function (sequelize) {
   });
 
   Demand.STATUS = STATUS;
+
+  Demand.addHook('beforeCreate', async (demand) => {
+    const maxRecord = await Demand.max('demandId');
+    const next = maxRecord ? parseInt(maxRecord, 10) + 1 : 1;
+    demand.demandId = String(next).padStart(5, '0');
+  });
 
   return Demand;
 };

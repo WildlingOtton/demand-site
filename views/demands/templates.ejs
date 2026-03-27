@@ -1,0 +1,49 @@
+<%- include('../partials/header') %>
+<%
+const ROLE_ICONS = {
+  software_engineer: '💻',
+  systems_engineer: '🔧',
+  devops_engineer: '⚙️',
+  cyber_engineer: '🔒',
+  chief_engineer: '🏆',
+  tester: '🧪',
+  integrator: '🔗',
+};
+%>
+
+<div class="page-header">
+  <h1>Select a Demand Template</h1>
+  <p class="subtitle">Choose a role template to pre-fill the demand form, or start from scratch.</p>
+</div>
+
+<div class="template-grid">
+  <% ROLE_TYPES.forEach(function(key) { %>
+    <% const t = DEMAND_TEMPLATES[key]; %>
+    <div class="template-card">
+      <div class="template-card-icon"><%= ROLE_ICONS[key] || '👤' %></div>
+      <h2 class="template-card-title"><%= t.role_label %></h2>
+      <p class="template-card-desc"><%= t.description.substring(0, 120) %>…</p>
+      <div class="template-card-meta">
+        <span class="badge badge-<%= t.priority %>"><%= t.priority %></span>
+        <% if (t.clearance_required && t.clearance_required !== 'None') { %>
+          <span class="badge badge-clearance"><%= t.clearance_required %></span>
+        <% } %>
+      </div>
+      <a href="/demands/new?template=<%= encodeURIComponent(key) %>" class="btn btn-primary btn-block">
+        Use Template
+      </a>
+    </div>
+  <% }); %>
+
+  <div class="template-card template-card-blank">
+    <div class="template-card-icon">📝</div>
+    <h2 class="template-card-title">Blank Form</h2>
+    <p class="template-card-desc">Start with an empty demand form and fill in all details manually.</p>
+    <div class="template-card-meta"></div>
+    <a href="/demands/new" class="btn btn-secondary btn-block">
+      Start Blank
+    </a>
+  </div>
+</div>
+
+<%- include('../partials/footer') %>
