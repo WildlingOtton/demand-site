@@ -20,6 +20,7 @@
     <table>
       <thead>
         <tr>
+          <th>Demand ID</th>
           <th>Title</th>
           <th>Department</th>
           <th>Positions</th>
@@ -32,6 +33,7 @@
         <% demands.forEach(function(demand) { %>
           <% const canEdit = user.role === 'admin' || user.role === 'hiring_manager' || demand.createdBy === user.id; %>
           <tr>
+            <td><%= demand.demandId || '—' %></td>
             <td><strong><%= demand.title %></strong></td>
             <td><%= demand.department || '—' %></td>
             <td><%= demand.numberOfPositions %></td>
