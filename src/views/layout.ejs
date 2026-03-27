@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= title %> | Demand Site</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; color: #333; min-height: 100vh; }
+    nav { background: #1a73e8; color: #fff; padding: 0.75rem 1.5rem; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.15); }
+    nav .brand { font-size: 1.25rem; font-weight: 700; text-decoration: none; color: #fff; }
+    nav .nav-links { display: flex; gap: 1rem; align-items: center; }
+    nav a { color: #fff; text-decoration: none; font-size: 0.9rem; padding: 0.4rem 0.8rem; border-radius: 4px; transition: background 0.2s; }
+    nav a:hover { background: rgba(255,255,255,0.15); }
+    nav form { display: inline; }
+    nav button { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); color: #fff; cursor: pointer; padding: 0.4rem 0.8rem; border-radius: 4px; font-size: 0.9rem; transition: background 0.2s; }
+    nav button:hover { background: rgba(255,255,255,0.35); }
+    .badge { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 12px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+    .badge-admin { background: #fce8e6; color: #c5221f; }
+    .badge-hiring_manager { background: #e8f0fe; color: #1a73e8; }
+    .badge-basic_user { background: #e6f4ea; color: #137333; }
+    .container { max-width: 1100px; margin: 2rem auto; padding: 0 1.5rem; }
+    .alert { padding: 0.85rem 1.2rem; border-radius: 6px; margin-bottom: 1.25rem; font-size: 0.92rem; }
+    .alert-error { background: #fce8e6; color: #c5221f; border: 1px solid #f5c6c4; }
+    .alert-success { background: #e6f4ea; color: #137333; border: 1px solid #b7dfbe; }
+    .card { background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); padding: 2rem; }
+    .btn { display: inline-block; padding: 0.55rem 1.2rem; border-radius: 5px; font-size: 0.9rem; font-weight: 500; cursor: pointer; text-decoration: none; border: none; transition: background 0.2s, opacity 0.2s; }
+    .btn-primary { background: #1a73e8; color: #fff; }
+    .btn-primary:hover { background: #1765cc; }
+    .btn-secondary { background: #fff; color: #333; border: 1px solid #ccc; }
+    .btn-secondary:hover { background: #f1f3f4; }
+    .btn-danger { background: #d93025; color: #fff; }
+    .btn-danger:hover { background: #b52a21; }
+    .btn-sm { padding: 0.3rem 0.8rem; font-size: 0.82rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+    thead tr { background: #f1f3f4; }
+    th, td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid #e8eaed; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #fafafa; }
+    .form-group { margin-bottom: 1.25rem; }
+    label { display: block; font-weight: 500; margin-bottom: 0.4rem; font-size: 0.92rem; }
+    input[type="text"], input[type="email"], input[type="password"], input[type="number"], select, textarea {
+      width: 100%; padding: 0.55rem 0.85rem; border: 1px solid #ccc; border-radius: 5px; font-size: 0.92rem; transition: border-color 0.2s; font-family: inherit;
+    }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: #1a73e8; box-shadow: 0 0 0 2px rgba(26,115,232,0.15); }
+    textarea { resize: vertical; min-height: 100px; }
+    .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; }
+    .page-header h1 { font-size: 1.5rem; font-weight: 700; }
+    footer { text-align: center; padding: 2rem 1rem; color: #888; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <% if (typeof user !== 'undefined' && user && user.id) { %>
+  <nav>
+    <a class="brand" href="/demands">Demand Site</a>
+    <div class="nav-links">
+      <a href="/demands">Demands</a>
+      <a href="/demands/new">+ New Demand</a>
+      <% if (user.role === 'admin') { %>
+        <a href="/admin/users">Manage Users</a>
+      <% } %>
+      <span class="badge badge-<%= user.role %>"><%= user.role.replace('_', ' ') %></span>
+      <span style="color:rgba(255,255,255,0.8);font-size:0.85rem;"><%= user.username %></span>
+      <form action="/auth/logout" method="POST">
+        <button type="submit">Logout</button>
+      </form>
+    </div>
+  </nav>
+  <% } %>
+
+  <div class="container">
+    <%- body %>
+  </div>
+
+  <footer>Demand Site &copy; <%= new Date().getFullYear() %></footer>
+</body>
+</html>
