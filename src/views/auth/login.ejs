@@ -1,0 +1,26 @@
+<% if (error && error.length) { %>
+  <div class="alert alert-error"><%= error %></div>
+<% } %>
+<% if (success && success.length) { %>
+  <div class="alert alert-success"><%= success %></div>
+<% } %>
+
+<div class="card" style="max-width:440px;margin:3rem auto;">
+  <h1 style="margin-bottom:1.5rem;font-size:1.5rem;">Login</h1>
+
+  <form action="/auth/login" method="POST">
+    <div class="form-group">
+      <label for="email">Email</label>
+      <input type="email" id="email" name="email" required autocomplete="email" />
+    </div>
+    <div class="form-group">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" required autocomplete="current-password" />
+    </div>
+    <button type="submit" class="btn btn-primary" style="width:100%;margin-top:0.5rem;">Login</button>
+  </form>
+
+  <p style="margin-top:1.25rem;text-align:center;font-size:0.9rem;">
+    Don't have an account? <a href="/auth/register" style="color:#1a73e8;">Register</a>
+  </p>
+</div>
