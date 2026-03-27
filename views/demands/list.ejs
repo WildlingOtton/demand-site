@@ -1,0 +1,55 @@
+<%- include('../partials/header') %>
+
+<div class="page-header">
+  <h1>All Demands</h1>
+  <a href="/demands/templates" class="btn btn-primary">+ Add Demand</a>
+</div>
+
+<% if (demands.length === 0) { %>
+  <div class="empty-state">
+    <p>No demands yet. <a href="/demands/templates">Add your first demand</a>.</p>
+  </div>
+<% } else { %>
+  <table class="demand-table">
+    <thead>
+      <tr>
+        <th>Title</th>
+        <th>Role</th>
+        <th>Priority</th>
+        <th>Status</th>
+        <th>Date Needed</th>
+        <th>Created</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% demands.forEach(function(d) { %>
+        <tr>
+          <td><a href="/demands/<%= d.id %>"><%= d.title %></a></td>
+          <td><span class="badge badge-role"><%= ROLE_LABELS[d.role_type] || d.role_type %></span></td>
+          <td>
+            <span class="badge badge-<%= d.priority %>">
+              <%= d.priority.charAt(0).toUpperCase() + d.priority.slice(1) %>
+            </span>
+          </td>
+          <td>
+            <span class="badge badge-status-<%= d.status %>">
+              <%= d.status.charAt(0).toUpperCase() + d.status.slice(1) %>
+            </span>
+          </td>
+          <td><%= d.date_needed || '—' %></td>
+          <td><%= new Date(d.created_at).toLocaleDateString() %></td>
+          <td class="actions">
+            <a href="/demands/<%= d.id %>/edit" class="btn btn-sm btn-secondary">Edit</a>
+            <form method="POST" action="/demands/<%= d.id %>/delete" style="display:inline"
+                  onsubmit="return confirm('Delete this demand?')">
+              <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+            </form>
+          </td>
+        </tr>
+      <% }); %>
+    </tbody>
+  </table>
+<% } %>
+
+<%- include('../partials/footer') %>

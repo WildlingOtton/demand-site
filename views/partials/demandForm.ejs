@@ -1,0 +1,77 @@
+<% if (errors && errors.length > 0) { %>
+  <div class="alert alert-error">
+    <ul>
+      <% errors.forEach(function(e) { %><li><%= e %></li><% }); %>
+    </ul>
+  </div>
+<% } %>
+
+<form method="POST" action="<%= formAction %>" novalidate>
+  <div class="form-grid">
+
+    <div class="form-group form-group-full">
+      <label for="title">Title <span class="required">*</span></label>
+      <input type="text" id="title" name="title" required maxlength="255"
+             value="<%= demand.title || '' %>" class="form-control" />
+    </div>
+
+    <div class="form-group">
+      <label for="role_type">Role Type <span class="required">*</span></label>
+      <select id="role_type" name="role_type" required class="form-control">
+        <option value="">— Select role —</option>
+        <% ROLE_TYPES.forEach(function(key) { %>
+          <option value="<%= key %>" <%= demand.role_type === key ? 'selected' : '' %>>
+            <%= ROLE_LABELS[key] %>
+          </option>
+        <% }); %>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="priority">Priority <span class="required">*</span></label>
+      <select id="priority" name="priority" required class="form-control">
+        <option value="normal" <%= (demand.priority || 'normal') === 'normal' ? 'selected' : '' %>>Normal</option>
+        <option value="critical" <%= demand.priority === 'critical' ? 'selected' : '' %>>Critical</option>
+      </select>
+    </div>
+
+    <% if (typeof demand.status !== 'undefined') { %>
+    <div class="form-group">
+      <label for="status">Status <span class="required">*</span></label>
+      <select id="status" name="status" required class="form-control">
+        <option value="open" <%= demand.status === 'open' ? 'selected' : '' %>>Open</option>
+        <option value="filled" <%= demand.status === 'filled' ? 'selected' : '' %>>Filled</option>
+        <option value="closed" <%= demand.status === 'closed' ? 'selected' : '' %>>Closed</option>
+      </select>
+    </div>
+    <% } %>
+
+    <div class="form-group">
+      <label for="clearance_required">Clearance Required</label>
+      <input type="text" id="clearance_required" name="clearance_required" maxlength="100"
+             value="<%= demand.clearance_required || 'None' %>" class="form-control" />
+    </div>
+
+    <div class="form-group">
+      <label for="date_needed">Date Needed</label>
+      <input type="date" id="date_needed" name="date_needed"
+             value="<%= demand.date_needed || '' %>" class="form-control" />
+    </div>
+
+    <div class="form-group form-group-full">
+      <label for="description">Description</label>
+      <textarea id="description" name="description" rows="6" class="form-control"><%= demand.description || '' %></textarea>
+    </div>
+
+    <div class="form-group form-group-full">
+      <label for="required_skills">Required Skills</label>
+      <textarea id="required_skills" name="required_skills" rows="4" class="form-control"><%= demand.required_skills || '' %></textarea>
+    </div>
+
+  </div>
+
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Save Demand</button>
+    <a href="/demands" class="btn btn-secondary">Cancel</a>
+  </div>
+</form>

@@ -1,0 +1,65 @@
+<%- include('../partials/header') %>
+
+<div class="page-header">
+  <div>
+    <h1><%= demand.title %></h1>
+    <span class="badge badge-role"><%= ROLE_LABELS[demand.role_type] || demand.role_type %></span>
+    <span class="badge badge-<%= demand.priority %>"><%= demand.priority %></span>
+    <span class="badge badge-status-<%= demand.status %>"><%= demand.status %></span>
+  </div>
+  <div class="page-header-actions">
+    <a href="/demands/<%= demand.id %>/edit" class="btn btn-secondary">Edit</a>
+    <form method="POST" action="/demands/<%= demand.id %>/delete" style="display:inline"
+          onsubmit="return confirm('Delete this demand?')">
+      <button type="submit" class="btn btn-danger">Delete</button>
+    </form>
+  </div>
+</div>
+
+<div class="demand-detail">
+  <div class="detail-card">
+    <h2>Overview</h2>
+    <dl class="detail-list">
+      <dt>Role Type</dt>
+      <dd><%= ROLE_LABELS[demand.role_type] || demand.role_type %></dd>
+
+      <dt>Priority</dt>
+      <dd><span class="badge badge-<%= demand.priority %>"><%= demand.priority %></span></dd>
+
+      <dt>Status</dt>
+      <dd><span class="badge badge-status-<%= demand.status %>"><%= demand.status %></span></dd>
+
+      <dt>Clearance Required</dt>
+      <dd><%= demand.clearance_required || 'None' %></dd>
+
+      <dt>Date Needed</dt>
+      <dd><%= demand.date_needed || '—' %></dd>
+
+      <dt>Created</dt>
+      <dd><%= new Date(demand.created_at).toLocaleString() %></dd>
+
+      <dt>Last Updated</dt>
+      <dd><%= new Date(demand.updated_at).toLocaleString() %></dd>
+    </dl>
+  </div>
+
+  <% if (demand.description) { %>
+  <div class="detail-card">
+    <h2>Description</h2>
+    <p class="detail-text"><%= demand.description %></p>
+  </div>
+  <% } %>
+
+  <% if (demand.required_skills) { %>
+  <div class="detail-card">
+    <h2>Required Skills</h2>
+    <p class="detail-text"><%= demand.required_skills %></p>
+  </div>
+  <% } %>
+</div>
+
+<div class="page-actions">
+  <a href="/demands" class="btn btn-secondary">← Back to All Demands</a>
+</div>
+
+<%- include('../partials/footer') %>
