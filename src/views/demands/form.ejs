@@ -1,0 +1,43 @@
+<% if (error && error.length) { %>
+  <div class="alert alert-error"><%= error %></div>
+<% } %>
+
+<div class="page-header">
+  <h1><%= demand ? 'Edit Demand' : 'New Demand' %></h1>
+  <a href="/demands" class="btn btn-secondary">← Back</a>
+</div>
+
+<div class="card" style="max-width:680px;">
+  <form action="<%= demand ? '/demands/' + demand.id : '/demands' %>" method="POST">
+    <div class="form-group">
+      <label for="title">Title <span style="color:#d93025;">*</span></label>
+      <input type="text" id="title" name="title" required value="<%= demand ? demand.title : '' %>" maxlength="200" />
+    </div>
+    <div class="form-group">
+      <label for="department">Department</label>
+      <input type="text" id="department" name="department" value="<%= demand ? (demand.department || '') : '' %>" maxlength="100" />
+    </div>
+    <div class="form-group">
+      <label for="numberOfPositions">Number of Positions</label>
+      <input type="number" id="numberOfPositions" name="numberOfPositions" min="1" value="<%= demand ? demand.numberOfPositions : 1 %>" />
+    </div>
+    <div class="form-group">
+      <label for="status">Status</label>
+      <select id="status" name="status">
+        <% Object.values(statuses).forEach(function(s) { %>
+          <option value="<%= s %>" <%= demand && demand.status === s ? 'selected' : '' %>>
+            <%= s.replace('_', ' ') %>
+          </option>
+        <% }); %>
+      </select>
+    </div>
+    <div class="form-group">
+      <label for="description">Description</label>
+      <textarea id="description" name="description" rows="4"><%= demand ? (demand.description || '') : '' %></textarea>
+    </div>
+    <div style="display:flex;gap:0.75rem;margin-top:0.5rem;">
+      <button type="submit" class="btn btn-primary"><%= demand ? 'Save Changes' : 'Create Demand' %></button>
+      <a href="/demands" class="btn btn-secondary">Cancel</a>
+    </div>
+  </form>
+</div>
