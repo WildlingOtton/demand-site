@@ -1,35 +1,31 @@
 {
   "name": "demand-site",
+  "private": true,
   "version": "1.0.0",
-  "description": "application for managing demand",
-  "main": "index.js",
+  "type": "module",
   "scripts": {
-    "start": "node index.js",
-    "dev": "node index.js",
-    "seed": "node scripts/seed.js",
-    "test": "node --test"
+    "dev": "concurrently \"npm:dev:client\" \"npm:dev:server\"",
+    "dev:client": "vite",
+    "dev:server": "node server.js",
+    "start": "node server.js",
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down",
+    "build": "vite build",
+    "preview": "vite preview",
+    "server": "node server.js"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/WildlingOtton/demand-site.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "bugs": {
-    "url": "https://github.com/WildlingOtton/demand-site/issues"
-  },
-  "homepage": "https://github.com/WildlingOtton/demand-site#readme",
   "dependencies": {
-    "bcrypt": "^6.0.0",
-    "connect-flash": "^0.1.1",
     "dotenv": "^17.3.1",
-    "ejs": "^5.0.1",
     "express": "^5.2.1",
-    "express-ejs-layouts": "^2.5.1",
-    "express-session": "^1.19.0",
-    "sequelize": "^6.37.8",
-    "sqlite3": "^6.0.1"
+    "nodemailer": "^8.0.4",
+    "papaparse": "^5.5.3",
+    "pg": "^8.20.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.2.1",
+    "vite": "^5.4.11"
   }
 }

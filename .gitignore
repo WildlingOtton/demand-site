@@ -1,5 +1,10 @@
 node_modules/
+dist/
+.DS_Store
+.vscode/
+.env
+.env.*
+
+# local sqlite artifacts
 data/*.sqlite
 data/*.sqlite-journal
-.env
-npm-debug.log*
