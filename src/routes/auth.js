@@ -97,7 +97,13 @@ router.post('/login', async (req, res) => {
     req.session.username = user.username;
     req.session.userRole = user.role;
 
-    res.redirect('/demands');
+    req.session.save((err) => {
+      if (err) {
+        req.flash('error', 'An error occurred. Please try again.');
+        return res.redirect('/auth/login');
+      }
+      res.redirect('/demands');
+    });
   } catch (err) {
     req.flash('error', 'An error occurred. Please try again.');
     res.redirect('/auth/login');
