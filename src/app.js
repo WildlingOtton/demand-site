@@ -14,6 +14,9 @@ const adminRoutes = require('./routes/admin');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Trust Railway/Render/Heroku reverse proxy so secure cookies work over HTTPS
+app.set('trust proxy', 1);
+
 // Ensure data directory exists
 const dataDir = path.join(__dirname, '../data');
 if (!fs.existsSync(dataDir)) {
