@@ -2,18 +2,16 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# Install dependencies first (cached layer)
+# Install full deps for build, then prune to prod deps.
 COPY package*.json ./
-RUN npm install --omit=dev
+RUN npm ci
 
-# Copy source
+# Copy source and build frontend assets.
 COPY . .
-
-# SQLite data directory
-RUN mkdir -p data
-
-EXPOSE 3000
+RUN npm run build && npm prune --omit=dev
 
 ENV NODE_ENV=production
 
-CMD ["node", "index.js"]
+EXPOSE 8080
+
+CMD ["node", "server.js"]
