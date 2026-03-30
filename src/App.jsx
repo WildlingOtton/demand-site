@@ -2547,10 +2547,6 @@ export default function App() {
             </form>
           )}
 
-          <ul className="auth-hints" aria-label="Demo user credentials">
-            <li>Bootstrap account: admin / admin123</li>
-            <li>Admins can create and manage users from the Admin Users page.</li>
-          </ul>
         </section>
       </main>
     );
