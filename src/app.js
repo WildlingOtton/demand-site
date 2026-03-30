@@ -78,9 +78,23 @@ app.use((err, req, res, _next) => {
   });
 });
 
+// Auto-seed admin user on first startup if none exists
+async function seedAdminIfNeeded() {
+  const { User } = require('./models');
+  const existing = await User.findOne({ where: { role: User.ROLES.ADMIN } });
+  if (!existing) {
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@example.com';
+    const adminPassword = process.env.ADMIN_PASSWORD || 'AdminPass123!';
+    const adminUsername = process.env.ADMIN_USERNAME || 'admin';
+    await User.create({ username: adminUsername, email: adminEmail, password: adminPassword, role: User.ROLES.ADMIN });
+    console.log(`Admin user created: ${adminEmail}`);
+  }
+}
+
 // Sync DB and start server
 sequelize
   .sync()
+  .then(seedAdminIfNeeded)
   .then(() => {
     app.listen(PORT, () => {
       console.log(`Demand Site running at http://localhost:${PORT}`);
