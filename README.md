@@ -62,6 +62,13 @@ Optional for email notifications:
 - `SMTP_FROM`
 - `SMTP_SECURE`
 
+Optional per-org recipient emails (demand-created notifications):
+
+- `ORG_EMAIL_ENG_SW`
+- `ORG_EMAIL_ENG_SEIT`
+- `ORG_EMAIL_PNL`
+- `ORG_EMAIL_CIDO`
+
 5. Start the frontend and backend together:
 
 ```bash
@@ -106,6 +113,13 @@ Use this when you need a shareable demo URL quickly.
 - `SMTP_PASS`
 - `SMTP_FROM`
 - `SMTP_SECURE`
+
+   Per-org recipient emails for demand-created notifications:
+
+- `ORG_EMAIL_ENG_SW`
+- `ORG_EMAIL_ENG_SEIT`
+- `ORG_EMAIL_PNL`
+- `ORG_EMAIL_CIDO`
 
 6. Deploy. Railway will run the Node app and use `npm run build` + `npm start`.
 

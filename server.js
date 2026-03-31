@@ -162,7 +162,7 @@ app.post('/api/notifications/demand-created', async (req, res) => {
   }
 
   const {
-    organizationEmail,
+    funcOrg,
     organizationLabel,
     creatorEmail,
     creatorName,
@@ -175,8 +175,17 @@ app.post('/api/notifications/demand-created', async (req, res) => {
     demandIds
   } = req.body ?? {};
 
+  // Resolve org email server-side from env vars so addresses never touch the client.
+  const orgEmailMap = {
+    ENG_SW: process.env.ORG_EMAIL_ENG_SW,
+    ENG_SEIT: process.env.ORG_EMAIL_ENG_SEIT,
+    'P&L': process.env.ORG_EMAIL_PNL,
+    CIDO: process.env.ORG_EMAIL_CIDO
+  };
+  const organizationEmail = orgEmailMap[funcOrg] || null;
+
   if (!organizationEmail || !creatorEmail || !creatorName || !demandTitle) {
-    return res.status(400).json({ ok: false, error: 'Missing required notification fields.' });
+    return res.status(400).json({ ok: false, error: 'Missing required notification fields or no org email configured for this functional org.' });
   }
 
   const ids = Array.isArray(demandIds) ? demandIds.filter(Boolean) : [];
@@ -211,6 +220,50 @@ app.post('/api/notifications/demand-created', async (req, res) => {
     ]);
 
     return res.json({ ok: true });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error instanceof Error ? error.message : 'Unknown mail error.'
+    });
+  }
+});
+
+app.post('/api/notifications/demand-updated', async (req, res) => {
+  const transportBundle = createTransporter();
+  if (!transportBundle) {
+    return res.status(503).json({
+      ok: false,
+      error: 'SMTP is not configured.'
+    });
+  }
+
+  const {
+    recipients,
+    subject,
+    message,
+    demandId,
+    demandTitle,
+    demandUrl,
+    actorName,
+    notificationType
+  } = req.body ?? {};
+
+  if (!Array.isArray(recipients) || recipients.length === 0 || !subject) {
+    return res.status(400).json({ ok: false, error: 'Missing required notification fields.' });
+  }
+
+  try {
+    const emailPromises = recipients.map((recipientEmail) =>
+      transportBundle.transporter.sendMail({
+        from: transportBundle.from,
+        to: recipientEmail,
+        subject,
+        text: `${message}\n\nDemand ID: ${demandId}\nTitle: ${demandTitle}\n\nUpdated by: ${actorName}\n\nView demand: ${demandUrl}`
+      })
+    );
+
+    await Promise.all(emailPromises);
+    return res.json({ ok: true, recipientCount: recipients.length });
   } catch (error) {
     return res.status(500).json({
       ok: false,

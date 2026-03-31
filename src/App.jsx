@@ -10,6 +10,7 @@ const pages = {
   allOpen: 'all-open-demands',
   allDestaff: 'all-destaff',
   destaff: 'destaff',
+  settings: 'settings',
   adminUsers: 'admin-users',
   addDemand: 'add-demand'
 };
@@ -23,6 +24,7 @@ const HM_GROUPS_KEY = 'demand-site:hiring-manager-groups-v1';
 const DESTAFF_KEY = 'demand-site:destaff-v1';
 const DEMAND_VIEW_PREFS_KEY = 'demand-site:demand-view-prefs-v1';
 const SPREADSHEET_VIEWS_KEY = 'demand-site:spreadsheet-views-v1';
+const NOTIFICATION_PREFS_KEY = 'demand-site:notification-prefs-v1';
 const CHANDLER_EMAIL = 'foster.chandler.m@gmail.com';
 const CHANDLER_NAME = 'Chandler Foster';
 
@@ -119,7 +121,7 @@ const MANAGER_CALL_VIEW_NAME = 'Manager Call Review';
 const workTypes = ['Firm', 'T&M', 'Internal', 'Contractor'];
 const clearanceOptions = ['Not Required', 'TS/SCI', 'Secret', 'Top Secret'];
 const yesNo = ['No', 'Yes'];
-const functionalOrgOptions = ['ENG_SW', 'ENG_SEIT'];
+const functionalOrgOptions = ['ENG_SW', 'ENG_SEIT', 'P&L', 'CIDO'];
 
 const priorityWeight = {
   Critical: 4,
@@ -227,6 +229,44 @@ function isEmail(value) {
 
 function isBlank(value) {
   return typeof value === 'string' ? value.trim() === '' : !value;
+}
+
+function loadUserNotificationPreferences() {
+  try {
+    const raw = window.localStorage.getItem(NOTIFICATION_PREFS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveUserNotificationPreferences(prefs) {
+  window.localStorage.setItem(NOTIFICATION_PREFS_KEY, JSON.stringify(prefs));
+}
+
+function getDefaultNotificationPreferences() {
+  return {
+    emailOnStateChange: true,
+    emailOnComment: true,
+    emailToHiringManager: true
+  };
+}
+
+async function sendNotificationEmail(payload) {
+  try {
+    const response = await fetch('/api/notifications/demand-updated', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      console.warn('Notification email failed:', response.statusText);
+    }
+  } catch (error) {
+    console.warn('Failed to send notification:', error);
+  }
 }
 
 function loadDraftSnapshot() {
@@ -634,33 +674,31 @@ export default function App() {
   const [selectedGroupId, setSelectedGroupId] = useState(null);
   const [groupStatus, setGroupStatus] = useState('');
   async function notifyDemandCreated(createdDemands) {
-    // TODO: Configure SMTP in .env (see .env.example) and uncomment below to enable email notifications.
-    // const demandsToNotify = Array.isArray(createdDemands) ? createdDemands : [createdDemands];
-    // const primaryDemand = demandsToNotify[0];
-    // const organizationEmail = primaryDemand.funcOrg === 'ENG_SEIT' ? ENG_SEIT_EMAIL : ENG_SW_EMAIL;
-    //
-    // const response = await fetch('/api/notifications/demand-created', {
-    //   method: 'POST',
-    //   headers: { 'Content-Type': 'application/json' },
-    //   body: JSON.stringify({
-    //     organizationEmail,
-    //     organizationLabel: primaryDemand.funcOrg,
-    //     creatorEmail: currentUser.email,
-    //     creatorName: currentUser.displayName,
-    //     demandTitle: primaryDemand.demandTitle,
-    //     project: primaryDemand.project,
-    //     positionTitle: primaryDemand.positionTitle,
-    //     priority: primaryDemand.priority,
-    //     needDate: primaryDemand.needDate,
-    //     notes: primaryDemand.notes,
-    //     demandIds: demandsToNotify.map((item) => item.demandId || item.id)
-    //   })
-    // });
-    //
-    // if (!response.ok) {
-    //   const payload = await response.json().catch(() => ({}));
-    //   throw new Error(payload.error || 'Failed to send demand notification email.');
-    // }
+    const demandsToNotify = Array.isArray(createdDemands) ? createdDemands : [createdDemands];
+    const primaryDemand = demandsToNotify[0];
+
+    const response = await fetch('/api/notifications/demand-created', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        funcOrg: primaryDemand.funcOrg,
+        organizationLabel: primaryDemand.funcOrg,
+        creatorEmail: currentUser.email,
+        creatorName: currentUser.displayName,
+        demandTitle: primaryDemand.demandTitle,
+        project: primaryDemand.project,
+        positionTitle: primaryDemand.positionTitle,
+        priority: primaryDemand.priority,
+        needDate: primaryDemand.needDate,
+        notes: primaryDemand.notes,
+        demandIds: demandsToNotify.map((item) => item.demandId || item.id)
+      })
+    });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      console.warn('Demand-created notification failed:', payload.error || response.statusText);
+    }
   }
   const [editingUserId, setEditingUserId] = useState(null);
   const [userStatus, setUserStatus] = useState('');
@@ -680,6 +718,7 @@ export default function App() {
   const [showSpreadsheetCustomizer, setShowSpreadsheetCustomizer] = useState(false);
   const [showManagerCallCustomizer, setShowManagerCallCustomizer] = useState(false);
   const [showAllOpenCustomizer, setShowAllOpenCustomizer] = useState(false);
+  const [notificationPreferences, setNotificationPreferences] = useState(loadUserNotificationPreferences);
   const [spreadsheetColumnFilters, setSpreadsheetColumnFilters] = useState({});
   const [spreadsheetColumns, setSpreadsheetColumns] = useState(defaultSpreadsheetColumns);
   const [savedSpreadsheetViews, setSavedSpreadsheetViews] = useState(loadSpreadsheetViews);
@@ -716,6 +755,12 @@ export default function App() {
   const [csvImportName, setCsvImportName] = useState('');
   const [csvImportStatus, setCsvImportStatus] = useState('');
   const [appStatus, setAppStatus] = useState('');
+  const [profileForm, setProfileForm] = useState({ firstName: '', lastName: '', email: '', funcOrg: '' });
+  const [profileStatus, setProfileStatus] = useState('');
+  const [passwordForm, setPasswordForm] = useState({ current: '', next: '', confirm: '' });
+  const [passwordStatus, setPasswordStatus] = useState('');
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
   const [attemptedSteps, setAttemptedSteps] = useState({});
   const [hasDraft, setHasDraft] = useState(false);
   const [draftUpdatedAt, setDraftUpdatedAt] = useState('');
@@ -946,6 +991,20 @@ export default function App() {
   useEffect(() => {
     if (page !== pages.allDestaff) {
       // Placeholder for allDestaff page state cleanup if needed
+    }
+  }, [page]);
+
+  useEffect(() => {
+    if (page === pages.settings && currentUser) {
+      setProfileForm({
+        firstName: currentUser.firstName,
+        lastName: currentUser.lastName,
+        email: currentUser.email,
+        funcOrg: currentUser.funcOrg || ''
+      });
+      setProfileStatus('');
+      setPasswordForm({ current: '', next: '', confirm: '' });
+      setPasswordStatus('');
     }
   }, [page]);
 
@@ -1908,6 +1967,11 @@ export default function App() {
     setPage(pages.destaff);
   }
 
+  function goToSettings() {
+    if (!shouldLeaveIntake()) return;
+    setPage(pages.settings);
+  }
+
   function goToAdminUsers() {
     if (!isAdmin || !shouldLeaveIntake()) return;
     setPage(pages.adminUsers);
@@ -2076,6 +2140,146 @@ export default function App() {
     });
   }
 
+  function updateNotificationPreference(key, value) {
+    if (!currentUser?.id) return;
+    const updated = {
+      ...notificationPreferences,
+      [currentUser.id]: {
+        ...(notificationPreferences[currentUser.id] || getDefaultNotificationPreferences()),
+        [key]: value
+      }
+    };
+    setNotificationPreferences(updated);
+    saveUserNotificationPreferences(updated);
+  }
+
+  function openProfileSettings() {
+    if (!currentUser) return;
+    setProfileForm({
+      firstName: currentUser.firstName,
+      lastName: currentUser.lastName,
+      email: currentUser.email,
+      funcOrg: currentUser.funcOrg || ''
+    });
+    setProfileStatus('');
+  }
+
+  function saveProfile(event) {
+    event.preventDefault();
+    if (!currentUser) return;
+
+    const firstName = profileForm.firstName.trim();
+    const lastName = profileForm.lastName.trim();
+    const email = profileForm.email.trim().toLowerCase();
+    const funcOrg = profileForm.funcOrg;
+
+    if (!firstName || !lastName) {
+      setProfileStatus('First and last name are required.');
+      return;
+    }
+    if (!isEmail(email)) {
+      setProfileStatus('Enter a valid email address.');
+      return;
+    }
+    if (!functionalOrgOptions.includes(funcOrg)) {
+      setProfileStatus('Select a valid functional group.');
+      return;
+    }
+    const duplicate = users.some((item) => item.email === email && item.id !== currentUser.id);
+    if (duplicate) {
+      setProfileStatus('That email is already in use.');
+      return;
+    }
+
+    const displayName = getUserDisplayName({ firstName, lastName });
+    setUsers((current) =>
+      current.map((item) =>
+        item.id === currentUser.id ? { ...item, firstName, lastName, displayName, email, funcOrg } : item
+      )
+    );
+    setProfileStatus('Profile updated.');
+  }
+
+  function savePassword(event) {
+    event.preventDefault();
+    if (!currentUser) return;
+
+    const user = users.find((item) => item.id === currentUser.id);
+    if (!user) return;
+
+    if (passwordForm.current !== user.password) {
+      setPasswordStatus('Current password is incorrect.');
+      return;
+    }
+    if (passwordForm.next.length < 6) {
+      setPasswordStatus('New password must be at least 6 characters.');
+      return;
+    }
+    if (passwordForm.next !== passwordForm.confirm) {
+      setPasswordStatus('Passwords do not match.');
+      return;
+    }
+
+    setUsers((current) =>
+      current.map((item) =>
+        item.id === currentUser.id ? { ...item, password: passwordForm.next } : item
+      )
+    );
+    setPasswordForm({ current: '', next: '', confirm: '' });
+    setPasswordStatus('Password changed.');
+  }
+
+  async function triggerNotificationEmail(demandId, notificationType, comment = null) {
+    const demand = demands.find((d) => d.id === demandId);
+    if (!demand) return;
+
+    const recipientEmails = new Set();
+    
+    const hiringManagerEmail = users
+      .find((u) => normalizeString(u.displayName) === normalizeString(demand.hiringManager || demand.owner))
+      ?.email || (demand.hiringManager ? 'unknown' : null);
+    
+    if (hiringManagerEmail) {
+      const hmPrefs = notificationPreferences[users.find(u => u.email === hiringManagerEmail)?.id] || getDefaultNotificationPreferences();
+      if ((notificationType === 'state-change' && hmPrefs.emailOnStateChange) || (notificationType === 'comment' && hmPrefs.emailOnComment)) {
+        recipientEmails.add(hiringManagerEmail);
+      }
+    }
+
+    const subscriberIds = subscriptions[demandId] || [];
+    for (const subId of subscriberIds) {
+      const subscriber = users.find((u) => u.id === subId);
+      if (subscriber) {
+        const subPrefs = notificationPreferences[subId] || getDefaultNotificationPreferences();
+        if ((notificationType === 'state-change' && subPrefs.emailOnStateChange) || (notificationType === 'comment' && subPrefs.emailOnComment)) {
+          recipientEmails.add(subscriber.email);
+        }
+      }
+    }
+
+    if (recipientEmails.size === 0) return;
+
+    const demandUrl = `${window.location.origin}?demand=${demandId}`;
+    const subject = notificationType === 'comment'
+      ? `New comment on demand: ${demand.demandId || demand.title}`
+      : `Demand status updated: ${demand.demandId || demand.title}`;
+
+    const message = notificationType === 'comment'
+      ? `${currentUser.displayName} commented: "${comment}"`
+      : `Status changed to: ${demand.state || demand.status}`;
+
+    await sendNotificationEmail({
+      recipients: Array.from(recipientEmails),
+      subject,
+      message,
+      demandId: demand.demandId || 'N/A',
+      demandTitle: demand.demandTitle || demand.title,
+      demandUrl,
+      actorName: currentUser.displayName,
+      notificationType
+    });
+  }
+
   function saveDetailEdits() {
     if (!detailEdits || !selectedDemandId) return;
     const normalizedState = normalizeStatusForFulfillmentStage(
@@ -2112,6 +2316,12 @@ export default function App() {
           : item
       )
     );
+    
+    const stateChanged = selectedDemand && (selectedDemand.state || selectedDemand.status) !== (normalizedDetailEdits.state || normalizedDetailEdits.status);
+    if (stateChanged) {
+      triggerNotificationEmail(selectedDemandId, 'state-change');
+    }
+    
     setDetailEdits(null);
   }
 
@@ -2397,6 +2607,7 @@ export default function App() {
           : item
       )
     );
+    triggerNotificationEmail(id, 'state-change');
   }
 
   function canManageComment(comment) {
@@ -2437,6 +2648,7 @@ export default function App() {
       )
     );
 
+    triggerNotificationEmail(selectedDemand.id, 'comment', newComment.trim());
     setNewComment('');
   }
 
@@ -3229,6 +3441,13 @@ export default function App() {
                 Admin Users
               </button>
             )}
+            <button
+              type="button"
+              className={`btn-nav ${page === pages.settings ? 'active' : ''}`}
+              onClick={goToSettings}
+            >
+              Settings
+            </button>
             <button type="button" className="btn-nav" onClick={onLogout}>
               Logout
             </button>
@@ -4834,6 +5053,233 @@ export default function App() {
                   )}
                 </tbody>
               </table>
+            </div>
+          </section>
+        </>
+      )}
+
+      {page === pages.settings && (
+        <>
+          <section className="hero">
+            <h2>Settings</h2>
+            <p className="subhead">Manage your profile, password, notifications, and export preferences.</p>
+          </section>
+
+          {/* Profile */}
+          <section className="panel" style={{ maxWidth: '600px', marginBottom: '1.5rem' }}>
+            <div className="board-head">
+              <h3>Profile</h3>
+              <p className="meta">Update your display name and contact information.</p>
+            </div>
+            <form onSubmit={saveProfile} style={{ padding: '1.5rem', borderTop: '1px solid #e5e7eb' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                  <span className="meta">First Name</span>
+                  <input
+                    className="field"
+                    value={profileForm.firstName}
+                    onChange={(e) => setProfileForm((prev) => ({ ...prev, firstName: e.target.value }))}
+                    required
+                  />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                  <span className="meta">Last Name</span>
+                  <input
+                    className="field"
+                    value={profileForm.lastName}
+                    onChange={(e) => setProfileForm((prev) => ({ ...prev, lastName: e.target.value }))}
+                    required
+                  />
+                </label>
+              </div>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginBottom: '1rem' }}>
+                <span className="meta">Email</span>
+                <input
+                  className="field"
+                  type="email"
+                  value={profileForm.email}
+                  onChange={(e) => setProfileForm((prev) => ({ ...prev, email: e.target.value }))}
+                  required
+                />
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginBottom: '1rem' }}>
+                <span className="meta">Functional Org</span>
+                <select
+                  className="field"
+                  value={profileForm.funcOrg}
+                  onChange={(e) => setProfileForm((prev) => ({ ...prev, funcOrg: e.target.value }))}
+                  required
+                >
+                  <option value="">Select…</option>
+                  {functionalOrgOptions.map((org) => (
+                    <option key={org} value={org}>{org}</option>
+                  ))}
+                </select>
+              </label>
+              {profileStatus && (
+                <p className="meta" style={{ color: profileStatus === 'Profile updated.' ? '#16a34a' : '#dc2626', marginBottom: '0.75rem' }}>
+                  {profileStatus}
+                </p>
+              )}
+              <button type="submit" className="btn-primary">Save Profile</button>
+            </form>
+          </section>
+
+          {/* Password */}
+          <section className="panel" style={{ maxWidth: '600px', marginBottom: '1.5rem' }}>
+            <div className="board-head">
+              <h3>Change Password</h3>
+              <p className="meta">Update your account password.</p>
+            </div>
+            <form onSubmit={savePassword} style={{ padding: '1.5rem', borderTop: '1px solid #e5e7eb' }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginBottom: '1rem' }}>
+                <span className="meta">Current Password</span>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    className="field"
+                    type={showCurrentPassword ? 'text' : 'password'}
+                    value={passwordForm.current}
+                    onChange={(e) => setPasswordForm((prev) => ({ ...prev, current: e.target.value }))}
+                    style={{ paddingRight: '2.5rem', width: '100%' }}
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCurrentPassword((v) => !v)}
+                    style={{ position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', fontSize: '0.8rem' }}
+                  >
+                    {showCurrentPassword ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginBottom: '1rem' }}>
+                <span className="meta">New Password</span>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    className="field"
+                    type={showNewPassword ? 'text' : 'password'}
+                    value={passwordForm.next}
+                    onChange={(e) => setPasswordForm((prev) => ({ ...prev, next: e.target.value }))}
+                    style={{ paddingRight: '2.5rem', width: '100%' }}
+                    required
+                    minLength={6}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword((v) => !v)}
+                    style={{ position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', fontSize: '0.8rem' }}
+                  >
+                    {showNewPassword ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginBottom: '1rem' }}>
+                <span className="meta">Confirm New Password</span>
+                <input
+                  className="field"
+                  type="password"
+                  value={passwordForm.confirm}
+                  onChange={(e) => setPasswordForm((prev) => ({ ...prev, confirm: e.target.value }))}
+                  required
+                  minLength={6}
+                />
+              </label>
+              {passwordStatus && (
+                <p className="meta" style={{ color: passwordStatus === 'Password changed.' ? '#16a34a' : '#dc2626', marginBottom: '0.75rem' }}>
+                  {passwordStatus}
+                </p>
+              )}
+              <button type="submit" className="btn-primary">Change Password</button>
+            </form>
+          </section>
+
+          {/* Notification Preferences */}
+          <section className="panel" style={{ maxWidth: '600px', marginBottom: '1.5rem' }}>
+            <div className="board-head">
+              <h3>Notification Preferences</h3>
+              <p className="meta">Control when you receive email notifications.</p>
+            </div>
+
+            <div style={{ padding: '1.5rem', borderTop: '1px solid #e5e7eb' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={notificationPreferences[currentUser?.id]?.emailOnStateChange ?? true}
+                  onChange={(event) => updateNotificationPreference('emailOnStateChange', event.target.checked)}
+                />
+                <span>
+                  <strong>State Changes</strong>
+                  <p className="meta">Notify me when demand status changes (Open, Closed, etc.)</p>
+                </span>
+              </label>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={notificationPreferences[currentUser?.id]?.emailOnComment ?? true}
+                  onChange={(event) => updateNotificationPreference('emailOnComment', event.target.checked)}
+                />
+                <span>
+                  <strong>New Comments</strong>
+                  <p className="meta">Notify me when someone comments on a demand</p>
+                </span>
+              </label>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={notificationPreferences[currentUser?.id]?.emailToHiringManager ?? true}
+                  onChange={(event) => updateNotificationPreference('emailToHiringManager', event.target.checked)}
+                  disabled
+                />
+                <span>
+                  <strong>As Hiring Manager</strong>
+                  <p className="meta">Receive notifications for demands I manage (always enabled)</p>
+                </span>
+              </label>
+
+              <p className="meta" style={{ marginTop: '1.5rem' }}>
+                These preferences control notification emails sent to your registered email address.
+              </p>
+            </div>
+          </section>
+
+          {/* Export Preferences */}
+          <section className="panel" style={{ maxWidth: '600px' }}>
+            <div className="board-head">
+              <h3>Export</h3>
+              <p className="meta">Download your demand data as a CSV file.</p>
+            </div>
+            <div style={{ padding: '1.5rem', borderTop: '1px solid #e5e7eb' }}>
+              <p className="meta" style={{ marginBottom: '1rem' }}>
+                Exports all demands you have access to, using the current spreadsheet column configuration.
+              </p>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  const exportColumns = spreadsheetColumns.length > 0 ? spreadsheetColumns : defaultSpreadsheetColumns;
+                  const header = exportColumns.map((key) => demandFieldByKey[key]?.label ?? key);
+                  const rows = demands.map((item) =>
+                    exportColumns.map((key) => {
+                      const val = demandFieldByKey[key]?.getValue(item) ?? '';
+                      return typeof val === 'string' && (val.includes(',') || val.includes('"') || val.includes('\n'))
+                        ? `"${val.replace(/"/g, '""')}"`
+                        : val;
+                    })
+                  );
+                  const csv = [header, ...rows].map((row) => row.join(',')).join('\n');
+                  const blob = new Blob([csv], { type: 'text/csv' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `demands-export-${new Date().toISOString().slice(0, 10)}.csv`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+              >
+                Download CSV
+              </button>
             </div>
           </section>
         </>
