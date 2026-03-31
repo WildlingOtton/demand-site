@@ -44,16 +44,58 @@ body {
 }
 
 .topbar-actions {
+  display: grid;
+  gap: 0.55rem;
+  justify-items: end;
+}
+
+.topbar-meta {
   display: flex;
-  gap: 0.5rem;
   align-items: center;
+  gap: 0.5rem;
   flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.topbar-nav {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .auth-user {
   margin: 0;
   font-size: 0.86rem;
   color: var(--muted);
+}
+
+.role-preview-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+.role-preview-control select {
+  border: 1px solid rgba(26, 29, 31, 0.2);
+  border-radius: 10px;
+  padding: 0.28rem 0.45rem;
+  font-size: 0.78rem;
+  background: #fff;
+  color: var(--ink);
+}
+
+.preview-banner {
+  margin-top: 0.8rem;
+  border: 1px solid #f2cb8d;
+  background: #fff3d9;
+  border-radius: 12px;
+  padding: 0.62rem 0.8rem;
+  font-size: 0.88rem;
+  color: #7a4f00;
 }
 
 .role-pill {
@@ -476,6 +518,13 @@ textarea:focus {
   gap: 0.6rem;
 }
 
+.feed-scope-tabs {
+  margin-top: 0.65rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
 .spreadsheet-customizer {
   margin-top: 0.8rem;
 }
@@ -636,6 +685,19 @@ textarea:focus {
   z-index: 1;
 }
 
+.spreadsheet-filter-row th {
+  background: #ffffff;
+  position: sticky;
+  top: 38px;
+  z-index: 1;
+}
+
+.spreadsheet-filter-row input {
+  width: 100%;
+  font-size: 0.78rem;
+  padding: 0.35rem 0.45rem;
+}
+
 .table-demand-link {
   padding: 0;
   text-align: left;
@@ -747,6 +809,11 @@ textarea:focus {
 
 .text-btn:hover {
   background: var(--accent-soft);
+}
+
+.text-btn.active-subscription {
+  background: var(--accent-soft);
+  font-weight: 700;
 }
 
 .text-btn.danger {
@@ -1137,6 +1204,12 @@ textarea:focus {
 
   .topbar-actions {
     width: 100%;
+    justify-items: start;
+  }
+
+  .topbar-meta,
+  .topbar-nav {
+    justify-content: flex-start;
   }
 
   .btn-nav {

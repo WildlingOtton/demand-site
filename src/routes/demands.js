@@ -1,10 +1,17 @@
 const express = require('express');
 const router = express.Router();
 const { Demand, User } = require('../models');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, getEffectiveRole, getSessionUser } = require('../middleware/auth');
 
 // All demand routes require authentication
 router.use(requireAuth);
+
+function canEditDemandForRole(role, demand, userId) {
+  if (role === User.ROLES.ADMIN || role === User.ROLES.HIRING_MANAGER) {
+    return true;
+  }
+  return demand.createdBy === userId;
+}
 
 // GET /demands - list all demands
 router.get('/', async (req, res) => {
@@ -16,11 +23,7 @@ router.get('/', async (req, res) => {
     res.render('demands/index', {
       title: 'Demands',
       demands,
-      user: {
-        id: req.session.userId,
-        username: req.session.username,
-        role: req.session.userRole,
-      },
+      user: getSessionUser(req),
       error: req.flash('error'),
       success: req.flash('success'),
     });
@@ -36,11 +39,7 @@ router.get('/new', (req, res) => {
     title: 'New Demand',
     demand: null,
     statuses: Demand.STATUS,
-    user: {
-      id: req.session.userId,
-      username: req.session.username,
-      role: req.session.userRole,
-    },
+    user: getSessionUser(req),
     error: req.flash('error'),
   });
 });
@@ -84,8 +83,8 @@ router.get('/:id/edit', async (req, res) => {
       return res.redirect('/demands');
     }
 
-    const currentUser = await User.findByPk(req.session.userId);
-    if (!currentUser || !currentUser.canEditDemand(demand)) {
+    const role = getEffectiveRole(req);
+    if (!canEditDemandForRole(role, demand, req.session.userId)) {
       req.flash('error', 'You do not have permission to edit this demand.');
       return res.redirect('/demands');
     }
@@ -94,11 +93,7 @@ router.get('/:id/edit', async (req, res) => {
       title: 'Edit Demand',
       demand,
       statuses: Demand.STATUS,
-      user: {
-        id: req.session.userId,
-        username: req.session.username,
-        role: req.session.userRole,
-      },
+      user: getSessionUser(req),
       error: req.flash('error'),
     });
   } catch (err) {
@@ -116,8 +111,8 @@ router.post('/:id', async (req, res) => {
       return res.redirect('/demands');
     }
 
-    const currentUser = await User.findByPk(req.session.userId);
-    if (!currentUser || !currentUser.canEditDemand(demand)) {
+    const role = getEffectiveRole(req);
+    if (!canEditDemandForRole(role, demand, req.session.userId)) {
       req.flash('error', 'You do not have permission to edit this demand.');
       return res.redirect('/demands');
     }
@@ -145,8 +140,8 @@ router.post('/:id', async (req, res) => {
 // POST /demands/:id/delete - delete a demand (admin only)
 router.post('/:id/delete', async (req, res) => {
   try {
-    const currentUser = await User.findByPk(req.session.userId);
-    if (!currentUser || !currentUser.canDeleteDemand()) {
+    const role = getEffectiveRole(req);
+    if (role !== User.ROLES.ADMIN) {
       req.flash('error', 'Only admins can delete demands.');
       return res.redirect('/demands');
     }

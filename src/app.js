@@ -10,6 +10,7 @@ const { sequelize } = require('./models');
 const authRoutes = require('./routes/auth');
 const demandsRoutes = require('./routes/demands');
 const adminRoutes = require('./routes/admin');
+const { getSessionUser } = require('./middleware/auth');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -50,6 +51,12 @@ app.use(
 // Flash messages
 app.use(flash());
 
+// Expose the authenticated user (including preview role state) to all views
+app.use((req, res, next) => {
+  res.locals.user = getSessionUser(req);
+  next();
+});
+
 // Routes
 app.get('/', (req, res) => {
   if (req.session.userId) return res.redirect('/demands');
@@ -64,9 +71,7 @@ app.use('/admin', adminRoutes);
 app.use((req, res) => {
   res.status(404).render('404', {
     title: 'Page Not Found',
-    user: req.session.userId
-      ? { id: req.session.userId, username: req.session.username, role: req.session.userRole }
-      : null,
+    user: getSessionUser(req),
   });
 });
 
@@ -75,9 +80,7 @@ app.use((err, req, res, _next) => {
   console.error(err);
   res.status(500).render('500', {
     title: 'Server Error',
-    user: req.session.userId
-      ? { id: req.session.userId, username: req.session.username, role: req.session.userRole }
-      : null,
+    user: getSessionUser(req),
   });
 });
 

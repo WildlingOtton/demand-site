@@ -6,6 +6,8 @@ import { hydrateDemandsFromApi, loadDemands, saveDemands } from './utils/storage
 const pages = {
   dashboard: 'dashboard',
   metrics: 'metrics',
+  managerCallMetrics: 'manager-call-metrics',
+  allOpen: 'all-open-demands',
   destaff: 'destaff',
   adminUsers: 'admin-users',
   addDemand: 'add-demand'
@@ -14,37 +16,55 @@ const pages = {
 const DRAFT_KEY = 'demand-site:intake-draft-v1';
 const AUTH_KEY = 'demand-site:auth-session-v1';
 const USERS_KEY = 'demand-site:users-v1';
+const SUBSCRIPTIONS_KEY = 'demand-site:demand-subscriptions-v1';
+const DEV_CHANDLER_SEED_KEY = 'demand-site:dev-chandler-seed-v1';
 const HM_GROUPS_KEY = 'demand-site:hiring-manager-groups-v1';
 const DESTAFF_KEY = 'demand-site:destaff-v1';
 const DEMAND_VIEW_PREFS_KEY = 'demand-site:demand-view-prefs-v1';
 const SPREADSHEET_VIEWS_KEY = 'demand-site:spreadsheet-views-v1';
-const ENG_SW_EMAIL = 'foster.chandler.m@gmail.com';
-const ENG_SEIT_EMAIL = 'foster.chandler.m@gmail.com';
+const CHANDLER_EMAIL = 'foster.chandler.m@gmail.com';
+const CHANDLER_NAME = 'Chandler Foster';
 
 const defaultUsers = [
   {
     id: 'u-basic',
-    username: 'basic',
     password: 'basic123',
+    firstName: 'Basic',
+    lastName: 'User',
     displayName: 'Basic User',
     role: 'basic',
-    email: 'basic@company.com'
+    email: 'basic@company.com',
+    funcOrg: 'ENG_SW'
   },
   {
     id: 'u-hm',
-    username: 'manager',
     password: 'manager123',
+    firstName: 'Hiring',
+    lastName: 'Manager',
     displayName: 'Hiring Manager',
     role: 'hiring-manager',
-    email: 'manager@company.com'
+    email: 'manager@company.com',
+    funcOrg: 'ENG_SEIT'
   },
   {
     id: 'u-admin',
-    username: 'admin',
     password: 'admin123',
-    displayName: 'Administrator',
+    firstName: 'Admin',
+    lastName: 'User',
+    displayName: 'Admin User',
     role: 'administrator',
-    email: 'admin@company.com'
+    email: 'admin@company.com',
+    funcOrg: 'ENG_SW'
+  },
+  {
+    id: 'u-chandler',
+    password: 'chandler123',
+    firstName: 'Chandler',
+    lastName: 'Foster',
+    displayName: 'Chandler Foster',
+    role: 'hiring-manager',
+    email: 'foster.chandler.m@gmail.com',
+    funcOrg: 'ENG_SW'
   }
 ];
 
@@ -53,6 +73,25 @@ const roleLabels = {
   'hiring-manager': 'Hiring Manager',
   administrator: 'Administrator'
 };
+const roleValues = Object.keys(roleLabels);
+
+function getUserDisplayName(user) {
+  const firstName = String(user?.firstName || '').trim();
+  const lastName = String(user?.lastName || '').trim();
+  const joined = [firstName, lastName].filter(Boolean).join(' ').trim();
+  if (joined) return joined;
+  if (typeof user?.displayName === 'string' && user.displayName.trim()) return user.displayName.trim();
+  return '';
+}
+
+function normalizeString(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function isUnassignedHiringManager(value) {
+  const normalized = normalizeString(value);
+  return normalized.length === 0 || normalized === 'unassigned' || normalized === 'n/a';
+}
 
 const allWizardSteps = [
   { id: 'project-demand', title: 'Project Demand' },
@@ -137,6 +176,20 @@ function sanitizeSpreadsheetColumns(columns) {
   return deduped.length > 0 ? deduped : defaultSpreadsheetColumns;
 }
 
+function matchesSpreadsheetColumnFilters(item, columnFilters) {
+  const activeFilters = Object.entries(columnFilters || {}).filter(([, value]) => String(value || '').trim().length > 0);
+  if (activeFilters.length === 0) return true;
+
+  return activeFilters.every(([key, rawFilter]) => {
+    const field = demandFieldByKey[key];
+    if (!field || typeof field.getValue !== 'function') return true;
+
+    const filterValue = String(rawFilter || '').trim().toLowerCase();
+    const cellValue = String(field.getValue(item) || '').trim().toLowerCase();
+    return cellValue.includes(filterValue);
+  });
+}
+
 function loadDemandViewPreferences() {
   try {
     const raw = window.localStorage.getItem(DEMAND_VIEW_PREFS_KEY);
@@ -202,8 +255,30 @@ function loadAuthSession() {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return null;
-    if (!parsed.id || !parsed.username || !parsed.role) return null;
-    return parsed;
+    if (!parsed.id || !parsed.role || !parsed.email) return null;
+    if (!roleValues.includes(parsed.role)) return null;
+
+    const legacyName = String(parsed.displayName || parsed.username || '').trim();
+    const legacyParts = legacyName ? legacyName.split(/\s+/) : [];
+    const firstName = String(parsed.firstName || legacyParts[0] || '').trim();
+    const lastName = String(parsed.lastName || legacyParts.slice(1).join(' ') || 'User').trim();
+    if (!firstName || !lastName) return null;
+
+    const previewRole =
+      parsed.role === 'administrator' && roleValues.includes(parsed.previewRole)
+        ? parsed.previewRole
+        : parsed.role;
+
+    return {
+      id: parsed.id,
+      firstName,
+      lastName,
+      displayName: getUserDisplayName({ firstName, lastName }),
+      email: String(parsed.email || '').trim().toLowerCase(),
+      role: parsed.role,
+      previewRole,
+      funcOrg: functionalOrgOptions.includes(parsed.funcOrg) ? parsed.funcOrg : ''
+    };
   } catch {
     return null;
   }
@@ -226,19 +301,35 @@ function loadUsers() {
     if (!Array.isArray(parsed)) return defaultUsers;
 
     const validUsers = parsed
-      .filter(
-        (item) =>
-          item &&
-          typeof item.id === 'string' &&
-          typeof item.username === 'string' &&
-          typeof item.password === 'string' &&
-          typeof item.displayName === 'string' &&
-          typeof item.role === 'string'
-      )
-      .map((item) => ({
-        ...item,
-        email: typeof item.email === 'string' ? item.email : ''
-      }));
+      .map((item) => {
+        if (!item || typeof item.id !== 'string' || typeof item.password !== 'string') return null;
+
+        const role = typeof item.role === 'string' ? item.role : '';
+        if (!roleValues.includes(role)) return null;
+
+        const email = String(item.email || '').trim().toLowerCase();
+        if (!email || !isEmail(email)) return null;
+
+        const legacyName = String(item.displayName || item.username || '').trim();
+        const legacyParts = legacyName ? legacyName.split(/\s+/) : [];
+        const firstName = String(item.firstName || legacyParts[0] || '').trim();
+        const lastName = String(item.lastName || legacyParts.slice(1).join(' ') || 'User').trim();
+        if (!firstName || !lastName) return null;
+
+        const funcOrg = functionalOrgOptions.includes(item.funcOrg) ? item.funcOrg : '';
+
+        return {
+          id: item.id,
+          firstName,
+          lastName,
+          displayName: getUserDisplayName({ firstName, lastName }),
+          password: item.password,
+          role,
+          email,
+          funcOrg
+        };
+      })
+      .filter(Boolean);
 
     return validUsers.length > 0 ? validUsers : defaultUsers;
   } catch {
@@ -248,6 +339,33 @@ function loadUsers() {
 
 function saveUsers(users) {
   window.localStorage.setItem(USERS_KEY, JSON.stringify(users));
+}
+
+function loadSubscriptions() {
+  try {
+    const raw = window.localStorage.getItem(SUBSCRIPTIONS_KEY);
+    if (!raw) return {};
+
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+
+    const normalized = {};
+    for (const [demandId, userIds] of Object.entries(parsed)) {
+      if (!Array.isArray(userIds)) continue;
+      const uniqueIds = [...new Set(userIds.filter((item) => typeof item === 'string' && item.trim()))];
+      if (uniqueIds.length > 0) {
+        normalized[demandId] = uniqueIds;
+      }
+    }
+
+    return normalized;
+  } catch {
+    return {};
+  }
+}
+
+function saveSubscriptions(subscriptions) {
+  window.localStorage.setItem(SUBSCRIPTIONS_KEY, JSON.stringify(subscriptions));
 }
 
 function loadHiringManagerGroups() {
@@ -477,25 +595,29 @@ export default function App() {
   const [users, setUsers] = useState(loadUsers);
   const [currentUser, setCurrentUser] = useState(loadAuthSession);
   const [authMode, setAuthMode] = useState('signin');
-  const [authForm, setAuthForm] = useState({ username: '', password: '' });
+  const [authForm, setAuthForm] = useState({ email: '', password: '' });
   const [authError, setAuthError] = useState('');
   const [showSignInPassword, setShowSignInPassword] = useState(false);
   const [signupForm, setSignupForm] = useState({
-    displayName: '',
-    username: '',
+    firstName: '',
+    lastName: '',
     email: '',
+    funcOrg: '',
     password: '',
     confirmPassword: ''
   });
   const [signupError, setSignupError] = useState('');
   const [showSignupPassword, setShowSignupPassword] = useState(false);
   const [userForm, setUserForm] = useState({
-    displayName: '',
-    username: '',
+    firstName: '',
+    lastName: '',
     email: '',
+    funcOrg: '',
     password: '',
     role: 'basic'
   });
+  const [subscriptions, setSubscriptions] = useState(loadSubscriptions);
+  const [dashboardFeedFilter, setDashboardFeedFilter] = useState('combined');
   const [hiringManagerGroups, setHiringManagerGroups] = useState(loadHiringManagerGroups);
   const [groupForm, setGroupForm] = useState({
     name: '',
@@ -553,7 +675,11 @@ export default function App() {
     priority: 'All'
   });
   const [dashboardScope, setDashboardScope] = useState(null);
-  const [demandViewMode, setDemandViewMode] = useState('cards');
+  const [demandViewMode, setDemandViewMode] = useState('spreadsheet');
+  const [showSpreadsheetCustomizer, setShowSpreadsheetCustomizer] = useState(false);
+  const [showManagerCallCustomizer, setShowManagerCallCustomizer] = useState(false);
+  const [showAllOpenCustomizer, setShowAllOpenCustomizer] = useState(false);
+  const [spreadsheetColumnFilters, setSpreadsheetColumnFilters] = useState({});
   const [spreadsheetColumns, setSpreadsheetColumns] = useState(defaultSpreadsheetColumns);
   const [savedSpreadsheetViews, setSavedSpreadsheetViews] = useState(loadSpreadsheetViews);
   const [viewDraft, setViewDraft] = useState({ name: '', shared: false });
@@ -602,9 +728,17 @@ export default function App() {
   }, [page, form, baselineForm]);
 
   const canCreateDemand = Boolean(currentUser);
-  const isAdmin = currentUser?.role === 'administrator';
+  const effectiveRole =
+    currentUser?.role === 'administrator' && roleValues.includes(currentUser?.previewRole)
+      ? currentUser.previewRole
+      : currentUser?.role;
+  const isRolePreviewing =
+    Boolean(currentUser) &&
+    currentUser.role === 'administrator' &&
+    effectiveRole !== currentUser.role;
+  const isAdmin = effectiveRole === 'administrator';
   const canEditFunctionalInfo =
-    currentUser?.role === 'administrator' || currentUser?.role === 'hiring-manager';
+    effectiveRole === 'administrator' || effectiveRole === 'hiring-manager';
   const adminCount = users.filter((item) => item.role === 'administrator').length;
   const hiringManagers = useMemo(
     () => users.filter((item) => item.role === 'hiring-manager'),
@@ -624,18 +758,18 @@ export default function App() {
 
   function canEditDemand(item) {
     if (!currentUser) return false;
-    if (currentUser.role === 'administrator' || currentUser.role === 'hiring-manager') return true;
+    if (effectiveRole === 'administrator' || effectiveRole === 'hiring-manager') return true;
     return isOwner(item);
   }
 
   function canDeleteDemand(item) {
     if (!currentUser) return false;
-    return currentUser.role === 'administrator';
+    return effectiveRole === 'administrator';
   }
 
   function canMarkDoneDemand(item) {
     if (!currentUser) return false;
-    if (currentUser.role === 'administrator' || currentUser.role === 'hiring-manager') return true;
+    if (effectiveRole === 'administrator' || effectiveRole === 'hiring-manager') return true;
     return isOwner(item);
   }
 
@@ -695,6 +829,10 @@ export default function App() {
   }, [users]);
 
   useEffect(() => {
+    saveSubscriptions(subscriptions);
+  }, [subscriptions]);
+
+  useEffect(() => {
     saveHiringManagerGroups(hiringManagerGroups);
   }, [hiringManagerGroups]);
 
@@ -731,17 +869,26 @@ export default function App() {
 
     const nextSession = {
       id: matchedUser.id,
-      username: matchedUser.username,
+      firstName: matchedUser.firstName,
+      lastName: matchedUser.lastName,
       displayName: matchedUser.displayName,
       role: matchedUser.role,
-      email: matchedUser.email
+      previewRole:
+        matchedUser.role === 'administrator' && roleValues.includes(currentUser.previewRole)
+          ? currentUser.previewRole
+          : matchedUser.role,
+      email: matchedUser.email,
+      funcOrg: matchedUser.funcOrg
     };
 
     if (
-      nextSession.username !== currentUser.username ||
+      nextSession.firstName !== currentUser.firstName ||
+      nextSession.lastName !== currentUser.lastName ||
       nextSession.displayName !== currentUser.displayName ||
       nextSession.role !== currentUser.role ||
-      nextSession.email !== currentUser.email
+      nextSession.previewRole !== currentUser.previewRole ||
+      nextSession.email !== currentUser.email ||
+      nextSession.funcOrg !== currentUser.funcOrg
     ) {
       setCurrentUser(nextSession);
       saveAuthSession(nextSession);
@@ -749,11 +896,17 @@ export default function App() {
   }, [users, currentUser]);
 
   useEffect(() => {
+    if (page === pages.adminUsers && !isAdmin) {
+      setPage(pages.dashboard);
+    }
+  }, [page, isAdmin]);
+
+  useEffect(() => {
     if (!currentUser?.id) return;
 
     const preferences = loadDemandViewPreferences();
     const currentPreference = preferences[currentUser.id] ?? {};
-    const nextMode = currentPreference.mode === 'spreadsheet' ? 'spreadsheet' : 'cards';
+    const nextMode = currentPreference.mode === 'cards' ? 'cards' : 'spreadsheet';
     const nextColumns = sanitizeSpreadsheetColumns(currentPreference.columns);
 
     setDemandViewMode(nextMode);
@@ -770,6 +923,120 @@ export default function App() {
     };
     saveDemandViewPreferences(preferences);
   }, [currentUser?.id, demandViewMode, spreadsheetColumns]);
+
+  useEffect(() => {
+    if (demandViewMode !== 'spreadsheet') {
+      setShowSpreadsheetCustomizer(false);
+    }
+  }, [demandViewMode]);
+
+  useEffect(() => {
+    if (page !== pages.managerCallMetrics) {
+      setShowManagerCallCustomizer(false);
+    }
+  }, [page]);
+
+  useEffect(() => {
+    if (page !== pages.allOpen) {
+      setShowAllOpenCustomizer(false);
+    }
+  }, [page]);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+
+    setDemands((current) => {
+      if (!Array.isArray(current)) return current;
+      const withoutLegacyAdminSeed = current.filter((item) => item.seedSource !== 'dev-admin-manager');
+
+      if (withoutLegacyAdminSeed.some((item) => item.seedSource === 'dev-chandler-manager')) {
+        return withoutLegacyAdminSeed.length === current.length ? current : withoutLegacyAdminSeed;
+      }
+
+      const chandlerUser = users.find(
+        (item) => normalizeString(item.email) === CHANDLER_EMAIL
+      );
+      console.log('Chandler user found:', chandlerUser?.displayName);
+      const adminUser = users.find((item) => item.role === 'administrator');
+      const adminName = getUserDisplayName(adminUser) || adminUser?.displayName || 'Admin User';
+      const adminEmail = adminUser?.email || 'admin@company.com';
+      const adminId = adminUser?.id || 'u-admin';
+      const chandlerName = getUserDisplayName(chandlerUser) || chandlerUser?.displayName || CHANDLER_NAME;
+      const chandlerFuncOrg = chandlerUser?.funcOrg || functionalOrgOptions[0];
+
+      const nextDemandNum = parseInt(getNextDemandId(withoutLegacyAdminSeed), 10) || 1;
+      const now = Date.now();
+
+      const seeded = Array.from({ length: 10 }, (_, index) => {
+        const sequence = nextDemandNum + index;
+        const id = crypto.randomUUID();
+        const dayOffset = index + 1;
+        const needDate = new Date(now + dayOffset * 86400000).toISOString().slice(0, 10);
+        const fulfillmentStage = managerCallFulfillmentStages[index % managerCallFulfillmentStages.length];
+        const createdAt = new Date(now - (index + 2) * 86400000).toISOString();
+
+        return {
+          id,
+          demandId: String(sequence).padStart(5, '0'),
+          demandTitle: `Chandler Seed Demand ${index + 1}`,
+          project: `DEV-PROGRAM-${(index % 3) + 1}`,
+          positionTitle: `Software Engineer ${index + 1}`,
+          hiringManager: chandlerName,
+          owner: chandlerName,
+          funcOrg: chandlerFuncOrg,
+          priority: priorities[index % priorities.length],
+          state: 'Open',
+          status: 'Open',
+          needDate,
+          fulfillmentStage,
+          reqNumber: `REQ-DEV-${String(sequence).padStart(4, '0')}`,
+          notes: `Development seeded demand assigned to ${chandlerName} (${CHANDLER_EMAIL}).`,
+          comments: [],
+          createdByUserId: adminId,
+          createdByName: adminName,
+          createdByEmail: adminEmail,
+          createdByRole: 'administrator',
+          updatedByUserId: adminId,
+          updatedByName: adminName,
+          createdAt,
+          updatedAt: createdAt,
+          seedSource: 'dev-chandler-manager'
+        };
+      });
+
+      const nextDemands = [...seeded, ...withoutLegacyAdminSeed];
+      return nextDemands;
+    });
+
+    try {
+      window.localStorage.setItem(DEV_CHANDLER_SEED_KEY, 'done');
+    } catch {
+      // Ignore localStorage write errors in restricted browser modes.
+    }
+  }, [users]);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    if (!currentUser?.id) return;
+
+    setSubscriptions((current) => {
+      let changed = false;
+      const next = { ...current };
+
+      const seededDemands = demands.filter((item) => item.seedSource === 'dev-chandler-manager');
+      console.log('Auto-subscribing', currentUser.displayName, 'to', seededDemands.length, 'seeded demands');
+      for (const demand of seededDemands) {
+        const existing = next[demand.id] || [];
+        if (!existing.includes(currentUser.id)) {
+          next[demand.id] = [...existing, currentUser.id];
+          changed = true;
+        }
+      }
+
+      if (changed) console.log('✓ Updated subscriptions for', seededDemands.length, 'demands');
+      return changed ? next : current;
+    });
+  }, [demands, currentUser?.id]);
 
   useEffect(() => {
     saveSpreadsheetViews(savedSpreadsheetViews);
@@ -791,10 +1058,84 @@ export default function App() {
   }, [currentStep]);
 
   useEffect(() => {
+    const demandIds = new Set(demands.map((item) => item.id));
+    const userIds = new Set(users.map((item) => item.id));
+
+    setSubscriptions((current) => {
+      let changed = false;
+      const next = {};
+
+      for (const [demandId, subscriberIds] of Object.entries(current)) {
+        if (!demandIds.has(demandId)) {
+          changed = true;
+          continue;
+        }
+
+        const filtered = [...new Set(subscriberIds.filter((id) => userIds.has(id)))];
+        if (filtered.length !== subscriberIds.length) changed = true;
+        if (filtered.length > 0) {
+          next[demandId] = filtered;
+        } else {
+          changed = true;
+        }
+      }
+
+      return changed ? next : current;
+    });
+  }, [demands, users]);
+
+  useEffect(() => {
+    setDashboardFeedFilter('combined');
+  }, [currentUser?.id]);
+
+  useEffect(() => {
     if (currentStep > activeWizardSteps.length - 1) {
       setCurrentStep(Math.max(0, activeWizardSteps.length - 1));
     }
   }, [currentStep, activeWizardSteps]);
+
+  function isSubscribedDemand(demandId) {
+    if (!currentUser?.id) return false;
+    return Array.isArray(subscriptions[demandId]) && subscriptions[demandId].includes(currentUser.id);
+  }
+
+  function toggleDemandSubscription(demandId) {
+    if (!currentUser?.id) return;
+
+    setSubscriptions((current) => {
+      const existing = Array.isArray(current[demandId]) ? current[demandId] : [];
+      const nextIds = existing.includes(currentUser.id)
+        ? existing.filter((id) => id !== currentUser.id)
+        : [...existing, currentUser.id];
+
+      const next = { ...current };
+      if (nextIds.length > 0) {
+        next[demandId] = nextIds;
+      } else {
+        delete next[demandId];
+      }
+      return next;
+    });
+  }
+
+  function isManagedByCurrentUser(item) {
+    if (!currentUser) return false;
+
+    const demandManager = normalizeString(item.hiringManager || item.owner);
+    if (!demandManager) return false;
+
+    const currentName = normalizeString(currentUser.displayName);
+    const currentEmail = normalizeString(currentUser.email);
+    return demandManager === currentName || demandManager === currentEmail;
+  }
+
+  function isGroupNewDemand(item) {
+    if (!currentUser?.funcOrg) return false;
+    const status = String(item.state ?? item.status ?? '').trim();
+    if (status !== 'Open') return false;
+    if ((item.funcOrg || '') !== currentUser.funcOrg) return false;
+    return isUnassignedHiringManager(item.hiringManager || item.owner);
+  }
 
   useEffect(() => {
     if (!isDirty) return undefined;
@@ -832,7 +1173,22 @@ export default function App() {
       ? demands.filter((item) => dashboardScope.ids.includes(item.id))
       : demands;
 
-    return scopedDemands
+    let personalizedDemands = scopedDemands;
+    if (page === pages.dashboard && currentUser) {
+      personalizedDemands = scopedDemands.filter((item) => {
+        const subscribed = isSubscribedDemand(item.id);
+        const managedByMe = isManagedByCurrentUser(item);
+        const groupNew = isGroupNewDemand(item);
+
+        if (dashboardFeedFilter === 'subscribed') return subscribed;
+        if (dashboardFeedFilter === 'manager') return managedByMe;
+        if (dashboardFeedFilter === 'group-new') return groupNew;
+
+        return subscribed || managedByMe || groupNew;
+      });
+    }
+
+    return personalizedDemands
       .filter((item) => {
         const query = filters.query.trim().toLowerCase();
         const commentText = Array.isArray(item.comments)
@@ -865,7 +1221,16 @@ export default function App() {
         const bDate = b.needDate ?? b.dueDate ?? '';
         return aDate.localeCompare(bDate);
       });
-  }, [demands, filters, dashboardScope]);
+  }, [demands, filters, dashboardScope, dashboardFeedFilter, page, currentUser, subscriptions]);
+
+  const dashboardCounts = useMemo(() => {
+    const total = visibleDemands.length;
+    const done = visibleDemands.filter((item) => (item.state ?? item.status) === 'Done').length;
+    const blocked = visibleDemands.filter((item) => (item.state ?? item.status) === 'Blocked').length;
+    const open = visibleDemands.filter((item) => (item.state ?? item.status) === 'Open').length;
+    const subscribed = visibleDemands.filter((item) => isSubscribedDemand(item.id)).length;
+    return { total, open, done, blocked, subscribed };
+  }, [visibleDemands, subscriptions, currentUser?.id]);
 
   const selectedSpreadsheetFields = useMemo(
     () => sanitizeSpreadsheetColumns(spreadsheetColumns).map((key) => demandFieldByKey[key]).filter(Boolean),
@@ -876,6 +1241,24 @@ export default function App() {
     () => demandFieldCatalog.filter((field) => !spreadsheetColumns.includes(field.key)),
     [spreadsheetColumns]
   );
+
+  useEffect(() => {
+    const selectedKeys = new Set(selectedSpreadsheetFields.map((field) => field.key));
+    setSpreadsheetColumnFilters((current) => {
+      let changed = false;
+      const next = {};
+
+      for (const [key, value] of Object.entries(current)) {
+        if (selectedKeys.has(key)) {
+          next[key] = value;
+        } else {
+          changed = true;
+        }
+      }
+
+      return changed ? next : current;
+    });
+  }, [selectedSpreadsheetFields]);
 
   const spreadsheetDemands = useMemo(() => {
     const hmQuery = spreadsheetFilters.hiringManager.trim().toLowerCase();
@@ -896,9 +1279,10 @@ export default function App() {
         spreadsheetFilters.fulfillmentStages.length === 0 ||
         spreadsheetFilters.fulfillmentStages.includes(item.fulfillmentStage || '');
 
-      return projectMatch && orgMatch && managerMatch && stageMatch;
+      const columnMatch = matchesSpreadsheetColumnFilters(item, spreadsheetColumnFilters);
+      return projectMatch && orgMatch && managerMatch && stageMatch && columnMatch;
     });
-  }, [visibleDemands, spreadsheetFilters]);
+  }, [visibleDemands, spreadsheetFilters, spreadsheetColumnFilters]);
 
   const spreadsheetGroups = useMemo(() => {
     if (spreadsheetFilters.groupBy === 'none') return [];
@@ -991,10 +1375,25 @@ export default function App() {
   function deleteSpreadsheetView(viewId) {
     const view = savedSpreadsheetViews.find((item) => item.id === viewId);
     if (!view || !currentUser?.id) return;
-    if (view.ownerId !== currentUser.id && currentUser.role !== 'administrator') return;
+    if (view.ownerId !== currentUser.id && !isAdmin) return;
 
     setSavedSpreadsheetViews((current) => current.filter((item) => item.id !== viewId));
     setAppStatus(`Deleted view: ${view.name}.`);
+  }
+
+  function updateRolePreview(nextRole) {
+    if (!currentUser || currentUser.role !== 'administrator') return;
+
+    const normalizedRole = roleValues.includes(nextRole) ? nextRole : 'administrator';
+    const nextSession = { ...currentUser, previewRole: normalizedRole };
+
+    setCurrentUser(nextSession);
+    saveAuthSession(nextSession);
+    setAppStatus(
+      normalizedRole === 'administrator'
+        ? 'Switched back to Administrator view.'
+        : `Previewing as ${roleLabels[normalizedRole]}.`
+    );
   }
 
   function updateSpreadsheetFilter(field, value) {
@@ -1023,6 +1422,14 @@ export default function App() {
         fulfillmentStages: nextStages
       };
     });
+  }
+
+  function updateSpreadsheetColumnFilter(fieldKey, value) {
+    setSpreadsheetColumnFilters((current) => ({ ...current, [fieldKey]: value }));
+  }
+
+  function clearSpreadsheetColumnFilters() {
+    setSpreadsheetColumnFilters({});
   }
 
   function applyManagerCallSpreadsheetPreset() {
@@ -1215,7 +1622,7 @@ export default function App() {
         .filter(Boolean);
 
       const membersWithStats = members.map((member) => {
-        const keys = [member.displayName, member.username, member.email]
+        const keys = [member.displayName, member.email]
           .map((value) => String(value || '').trim().toLowerCase())
           .filter(Boolean);
 
@@ -1268,7 +1675,7 @@ export default function App() {
       const queryTarget = [
         group.name,
         group.description,
-        ...group.members.flatMap((member) => [member.displayName, member.username, member.email])
+        ...group.members.flatMap((member) => [member.displayName, member.email])
       ]
         .join(' ')
         .toLowerCase();
@@ -1369,6 +1776,56 @@ export default function App() {
     return { openDemands, staleDemands, agingBuckets, maxBucketCount, avgDaysOpen, oldestOpenDays };
   }, [metrics, metricsFilters]);
 
+  const managerCallDemands = useMemo(() => {
+    return demands
+      .filter((item) => managerCallFulfillmentStages.includes(item.fulfillmentStage || ''))
+      .sort((a, b) => {
+        const aDate = a.needDate ?? a.dueDate ?? '';
+        const bDate = b.needDate ?? b.dueDate ?? '';
+        return aDate.localeCompare(bDate);
+      });
+  }, [demands]);
+
+  const managerCallSpreadsheetDemands = useMemo(
+    () => managerCallDemands.filter((item) => matchesSpreadsheetColumnFilters(item, spreadsheetColumnFilters)),
+    [managerCallDemands, spreadsheetColumnFilters]
+  );
+
+  const allOpenDemands = useMemo(() => {
+    return demands
+      .filter((item) => (item.state ?? item.status) === 'Open')
+      .sort((a, b) => {
+        const aDate = a.needDate ?? a.dueDate ?? '';
+        const bDate = b.needDate ?? b.dueDate ?? '';
+        return aDate.localeCompare(bDate);
+      });
+  }, [demands]);
+
+  const allOpenSpreadsheetDemands = useMemo(
+    () => allOpenDemands.filter((item) => matchesSpreadsheetColumnFilters(item, spreadsheetColumnFilters)),
+    [allOpenDemands, spreadsheetColumnFilters]
+  );
+
+  const managerCallMetrics = useMemo(() => {
+    const byStage = managerCallFulfillmentStages.map((stage) => ({
+      stage,
+      count: managerCallDemands.filter((item) => (item.fulfillmentStage || '') === stage).length
+    }));
+
+    const byOrg = functionalOrgOptions.map((org) => ({
+      org,
+      count: managerCallDemands.filter((item) => (item.funcOrg || '') === org).length
+    }));
+
+    return {
+      total: managerCallDemands.length,
+      open: managerCallDemands.filter((item) => (item.state ?? item.status) === 'Open').length,
+      blocked: managerCallDemands.filter((item) => (item.state ?? item.status) === 'Blocked').length,
+      byStage,
+      byOrg
+    };
+  }, [managerCallDemands]);
+
   function resetForm(stayOnPage = false) {
     const defaults = getDefaultForm();
     setForm(defaults);
@@ -1398,6 +1855,16 @@ export default function App() {
     if (!shouldLeaveIntake()) return;
     setDashboardScope(null);
     setPage(pages.metrics);
+  }
+
+  function goToAllOpenDemands() {
+    setPage(pages.allOpen);
+  }
+
+  function goToManagerCallMetrics() {
+    if (!shouldLeaveIntake()) return;
+    setDashboardScope(null);
+    setPage(pages.managerCallMetrics);
   }
 
   function openSpreadsheetForDemands(ids, label) {
@@ -1883,6 +2350,12 @@ export default function App() {
     if (!target || !canDeleteDemand(target)) return;
     if (id === editId) resetForm();
     setDemands((current) => current.filter((item) => item.id !== id));
+    setSubscriptions((current) => {
+      if (!current[id]) return current;
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
   }
 
   function markDone(id) {
@@ -1913,7 +2386,7 @@ export default function App() {
 
   function canManageComment(comment) {
     if (!currentUser) return false;
-    if (currentUser.role === 'administrator' || currentUser.role === 'hiring-manager') return true;
+    if (effectiveRole === 'administrator' || effectiveRole === 'hiring-manager') return true;
     return comment.authorEmail === currentUser.email;
   }
 
@@ -2029,28 +2502,32 @@ export default function App() {
 
   function onLogin(event) {
     event.preventDefault();
+    const email = authForm.email.trim().toLowerCase();
     const user = users.find(
       (entry) =>
-        entry.username.toLowerCase() === authForm.username.trim().toLowerCase() &&
+        entry.email.toLowerCase() === email &&
         entry.password === authForm.password
     );
 
     if (!user) {
-      setAuthError('Invalid username or password.');
+      setAuthError('Invalid email or password.');
       return;
     }
 
     const sessionUser = {
       id: user.id,
-      username: user.username,
+      firstName: user.firstName,
+      lastName: user.lastName,
       displayName: user.displayName,
       role: user.role,
-      email: user.email
+      previewRole: user.role,
+      email: user.email,
+      funcOrg: user.funcOrg
     };
 
     setCurrentUser(sessionUser);
     saveAuthSession(sessionUser);
-    setAuthForm({ username: '', password: '' });
+    setAuthForm({ email: '', password: '' });
     setAuthError('');
     setPage(pages.dashboard);
   }
@@ -2058,12 +2535,13 @@ export default function App() {
   function onCreateAccount(event) {
     event.preventDefault();
 
-    const displayName = signupForm.displayName.trim();
-    const username = signupForm.username.trim().toLowerCase();
+    const firstName = signupForm.firstName.trim();
+    const lastName = signupForm.lastName.trim();
     const email = signupForm.email.trim().toLowerCase();
+    const funcOrg = signupForm.funcOrg;
     const password = signupForm.password;
 
-    if (!displayName || !username || !email || !password || !signupForm.confirmPassword) {
+    if (!firstName || !lastName || !email || !funcOrg || !password || !signupForm.confirmPassword) {
       setSignupError('All fields are required.');
       return;
     }
@@ -2083,23 +2561,26 @@ export default function App() {
       return;
     }
 
-    const usernameTaken = users.some((item) => item.username.toLowerCase() === username);
-    if (usernameTaken) {
-      setSignupError('Username already exists.');
-      return;
-    }
-
     const emailTaken = users.some((item) => item.email?.toLowerCase() === email);
     if (emailTaken) {
       setSignupError('Email already exists.');
       return;
     }
 
+    if (!functionalOrgOptions.includes(funcOrg)) {
+      setSignupError('Select a valid functional group.');
+      return;
+    }
+
+    const displayName = getUserDisplayName({ firstName, lastName });
+
     const createdUser = {
       id: crypto.randomUUID(),
+      firstName,
+      lastName,
       displayName,
-      username,
       email,
+      funcOrg,
       password,
       role: 'basic'
     };
@@ -2108,18 +2589,22 @@ export default function App() {
 
     const sessionUser = {
       id: createdUser.id,
-      username: createdUser.username,
+      firstName: createdUser.firstName,
+      lastName: createdUser.lastName,
       displayName: createdUser.displayName,
       role: createdUser.role,
-      email: createdUser.email
+      previewRole: createdUser.role,
+      email: createdUser.email,
+      funcOrg: createdUser.funcOrg
     };
 
     setCurrentUser(sessionUser);
     saveAuthSession(sessionUser);
     setSignupForm({
-      displayName: '',
-      username: '',
+      firstName: '',
+      lastName: '',
       email: '',
+      funcOrg: '',
       password: '',
       confirmPassword: ''
     });
@@ -2142,9 +2627,10 @@ export default function App() {
 
   function resetUserForm() {
     setUserForm({
-      displayName: '',
-      username: '',
+      firstName: '',
+      lastName: '',
       email: '',
+      funcOrg: '',
       password: '',
       role: 'basic'
     });
@@ -2155,13 +2641,14 @@ export default function App() {
     event.preventDefault();
     if (!isAdmin) return;
 
-    const displayName = userForm.displayName.trim();
-    const username = userForm.username.trim().toLowerCase();
+    const firstName = userForm.firstName.trim();
+    const lastName = userForm.lastName.trim();
     const email = userForm.email.trim().toLowerCase();
+    const funcOrg = userForm.funcOrg;
     const password = userForm.password;
 
-    if (!displayName || !username || !email) {
-      setUserStatus('Display name, username, and email are required.');
+    if (!firstName || !lastName || !email || !funcOrg) {
+      setUserStatus('First name, last name, email, and functional group are required.');
       return;
     }
 
@@ -2170,14 +2657,18 @@ export default function App() {
       return;
     }
 
-    const duplicateUsername = users.some(
-      (item) => item.username.toLowerCase() === username && item.id !== editingUserId
-    );
-
-    if (duplicateUsername) {
-      setUserStatus('Username already exists.');
+    if (!functionalOrgOptions.includes(funcOrg)) {
+      setUserStatus('Select a valid functional group.');
       return;
     }
+
+    const duplicateEmail = users.some((item) => item.email.toLowerCase() === email && item.id !== editingUserId);
+    if (duplicateEmail) {
+      setUserStatus('Email already exists.');
+      return;
+    }
+
+    const displayName = getUserDisplayName({ firstName, lastName });
 
     if (!editingUserId && !password) {
       setUserStatus('Password is required for a new user.');
@@ -2201,9 +2692,11 @@ export default function App() {
           item.id === editingUserId
             ? {
                 ...item,
+                firstName,
+                lastName,
                 displayName,
-                username,
                 email,
+                funcOrg,
                 role: userForm.role,
                 password: password || item.password
               }
@@ -2216,9 +2709,11 @@ export default function App() {
         ...current,
         {
           id: crypto.randomUUID(),
+          firstName,
+          lastName,
           displayName,
-          username,
           email,
+          funcOrg,
           password,
           role: userForm.role
         }
@@ -2233,9 +2728,10 @@ export default function App() {
     if (!isAdmin) return;
     setEditingUserId(user.id);
     setUserForm({
-      displayName: user.displayName,
-      username: user.username,
+      firstName: user.firstName,
+      lastName: user.lastName,
       email: user.email,
+      funcOrg: user.funcOrg || '',
       password: '',
       role: user.role
     });
@@ -2262,6 +2758,14 @@ export default function App() {
     if (!confirmed) return;
 
     setUsers((current) => current.filter((item) => item.id !== userId));
+    setSubscriptions((current) => {
+      const next = {};
+      for (const [demandId, subscriberIds] of Object.entries(current)) {
+        const filtered = subscriberIds.filter((id) => id !== userId);
+        if (filtered.length > 0) next[demandId] = filtered;
+      }
+      return next;
+    });
     if (editingUserId === userId) {
       resetUserForm();
     }
@@ -2390,7 +2894,7 @@ export default function App() {
   }
 
   function viewManagerDemandsFromGroup(member) {
-    const matchText = member.displayName || member.username || member.email || '';
+    const matchText = member.displayName || member.email || '';
     if (!matchText) return;
 
     if (!shouldLeaveIntake()) return;
@@ -2443,12 +2947,13 @@ export default function App() {
           {authMode === 'signin' ? (
             <form onSubmit={onLogin} className="auth-form">
               <label>
-                Username
+                Email
                 <input
-                  value={authForm.username}
-                  onChange={(event) => setAuthForm((current) => ({ ...current, username: event.target.value }))}
-                  placeholder="Enter username"
-                  autoComplete="username"
+                  type="email"
+                  value={authForm.email}
+                  onChange={(event) => setAuthForm((current) => ({ ...current, email: event.target.value }))}
+                  placeholder="Enter email"
+                  autoComplete="email"
                 />
               </label>
               <label>
@@ -2477,14 +2982,25 @@ export default function App() {
           ) : (
             <form onSubmit={onCreateAccount} className="auth-form">
               <label>
-                Full Name
+                First Name
                 <input
-                  value={signupForm.displayName}
+                  value={signupForm.firstName}
                   onChange={(event) =>
-                    setSignupForm((current) => ({ ...current, displayName: event.target.value }))
+                    setSignupForm((current) => ({ ...current, firstName: event.target.value }))
                   }
-                  placeholder="Enter full name"
-                  autoComplete="name"
+                  placeholder="Enter first name"
+                  autoComplete="given-name"
+                />
+              </label>
+              <label>
+                Last Name
+                <input
+                  value={signupForm.lastName}
+                  onChange={(event) =>
+                    setSignupForm((current) => ({ ...current, lastName: event.target.value }))
+                  }
+                  placeholder="Enter last name"
+                  autoComplete="family-name"
                 />
               </label>
               <label>
@@ -2498,15 +3014,16 @@ export default function App() {
                 />
               </label>
               <label>
-                Username
-                <input
-                  value={signupForm.username}
-                  onChange={(event) =>
-                    setSignupForm((current) => ({ ...current, username: event.target.value }))
-                  }
-                  placeholder="Choose username"
-                  autoComplete="username"
-                />
+                Functional Group
+                <select
+                  value={signupForm.funcOrg}
+                  onChange={(event) => setSignupForm((current) => ({ ...current, funcOrg: event.target.value }))}
+                >
+                  <option value="">Select group</option>
+                  {functionalOrgOptions.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
               </label>
               <label>
                 Password
@@ -2621,50 +3138,91 @@ export default function App() {
           <h1 className="topbar-title">Staffing Demand Console</h1>
         </div>
         <div className="topbar-actions">
-          <span className={`role-pill role-${currentUser.role}`}>{roleLabels[currentUser.role]}</span>
-          <p className="auth-user">{currentUser.displayName} · {currentUser.email || currentUser.username}</p>
-          <button
-            type="button"
-            className={`btn-nav ${page === pages.dashboard ? 'active' : ''}`}
-            onClick={goToDashboard}
-          >
-            Dashboard
-          </button>
-          <button
-            type="button"
-            className={`btn-nav ${page === pages.metrics ? 'active' : ''}`}
-            onClick={goToMetrics}
-          >
-            Metrics
-          </button>
-          <button
-            type="button"
-            className={`btn-nav ${page === pages.addDemand ? 'active' : ''}`}
-            onClick={openAddDemand}
-          >
-            Add Demand
-          </button>
-          <button
-            type="button"
-            className={`btn-nav ${page === pages.destaff ? 'active' : ''}`}
-            onClick={goToDestaff}
-          >
-            Destaff
-          </button>
-          {isAdmin && (
+          <div className="topbar-meta">
+            <span className={`role-pill role-${effectiveRole}`}>{roleLabels[effectiveRole]}</span>
+            {currentUser.role === 'administrator' && (
+              <label className="role-preview-control">
+                View as
+                <select
+                  value={effectiveRole}
+                  onChange={(event) => updateRolePreview(event.target.value)}
+                >
+                  <option value="administrator">Administrator</option>
+                  <option value="hiring-manager">Hiring Manager</option>
+                  <option value="basic">Basic</option>
+                </select>
+              </label>
+            )}
+            <p className="auth-user">{currentUser.displayName} · {currentUser.email}</p>
+          </div>
+          <div className="topbar-nav">
             <button
               type="button"
-              className={`btn-nav ${page === pages.adminUsers ? 'active' : ''}`}
-              onClick={goToAdminUsers}
+              className={`btn-nav ${page === pages.dashboard ? 'active' : ''}`}
+              onClick={goToDashboard}
             >
-              Admin Users
+              Dashboard
             </button>
-          )}
-          <button type="button" className="btn-nav" onClick={onLogout}>
-            Logout
-          </button>
+            <button
+              type="button"
+              className={`btn-nav ${page === pages.metrics ? 'active' : ''}`}
+              onClick={goToMetrics}
+            >
+              Metrics
+            </button>
+            <button
+              type="button"
+              className={`btn-nav ${page === pages.managerCallMetrics ? 'active' : ''}`}
+              onClick={goToManagerCallMetrics}
+            >
+              Manager Call Metrics
+            </button>
+            <button
+              type="button"
+              className={`btn-nav ${page === pages.allOpen ? 'active' : ''}`}
+              onClick={goToAllOpenDemands}
+            >
+              All Open Demands
+            </button>
+            <button
+              type="button"
+              className={`btn-nav ${page === pages.addDemand ? 'active' : ''}`}
+              onClick={openAddDemand}
+            >
+              Add Demand
+            </button>
+            <button
+              type="button"
+              className={`btn-nav ${page === pages.destaff ? 'active' : ''}`}
+              onClick={goToDestaff}
+            >
+              Destaff
+            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                className={`btn-nav ${page === pages.adminUsers ? 'active' : ''}`}
+                onClick={goToAdminUsers}
+              >
+                Admin Users
+              </button>
+            )}
+            <button type="button" className="btn-nav" onClick={onLogout}>
+              Logout
+            </button>
+          </div>
         </div>
       </header>
+
+      {isRolePreviewing && (
+        <section className="preview-banner" role="status" aria-live="polite">
+          Preview mode active. You are signed in as Administrator and currently viewing
+          {' '}
+          <strong>{roleLabels[effectiveRole]}</strong>
+          {' '}
+          permissions.
+        </section>
+      )}
 
       {page === pages.destaff && (() => {
                 const visibleDestaff = destaffRecords.filter((r) => {
@@ -2888,24 +3446,24 @@ export default function App() {
 
           <section className="metrics-grid" aria-label="Demand metrics">
             <article className="metric-card">
-              <p>Total Demands</p>
-              <h2>{metrics.total}</h2>
+              <p>My Feed Total</p>
+              <h2>{dashboardCounts.total}</h2>
             </article>
             <article className="metric-card">
               <p>Open</p>
-              <h2>{metrics.open}</h2>
+              <h2>{dashboardCounts.open}</h2>
             </article>
             <article className="metric-card">
               <p>Completed</p>
-              <h2>{metrics.done}</h2>
+              <h2>{dashboardCounts.done}</h2>
             </article>
             <article className="metric-card warn">
               <p>Blocked</p>
-              <h2>{metrics.blocked}</h2>
+              <h2>{dashboardCounts.blocked}</h2>
             </article>
             <article className="metric-card">
-              <p>Weighted Effort</p>
-              <h2>{metrics.weightedEffort}</h2>
+              <p>Subscribed</p>
+              <h2>{dashboardCounts.subscribed}</h2>
             </article>
           </section>
 
@@ -2969,6 +3527,37 @@ export default function App() {
               </select>
             </div>
 
+            <div className="feed-scope-tabs" role="tablist" aria-label="Dashboard feed scope">
+              <button
+                type="button"
+                className={`btn-secondary ${dashboardFeedFilter === 'combined' ? 'active-view' : ''}`}
+                onClick={() => setDashboardFeedFilter('combined')}
+              >
+                Combined Feed
+              </button>
+              <button
+                type="button"
+                className={`btn-secondary ${dashboardFeedFilter === 'subscribed' ? 'active-view' : ''}`}
+                onClick={() => setDashboardFeedFilter('subscribed')}
+              >
+                Subscribed
+              </button>
+              <button
+                type="button"
+                className={`btn-secondary ${dashboardFeedFilter === 'manager' ? 'active-view' : ''}`}
+                onClick={() => setDashboardFeedFilter('manager')}
+              >
+                Hiring Manager
+              </button>
+              <button
+                type="button"
+                className={`btn-secondary ${dashboardFeedFilter === 'group-new' ? 'active-view' : ''}`}
+                onClick={() => setDashboardFeedFilter('group-new')}
+              >
+                Group New
+              </button>
+            </div>
+
             {demandViewMode === 'cards' ? (
               <ul className="demand-list" aria-label="Demand board">
                 {visibleDemands.length === 0 && (
@@ -3011,6 +3600,16 @@ export default function App() {
                         <button type="button" className="text-btn" onClick={(event) => { event.stopPropagation(); openDemandDetails(item.id); }}>
                           View Details
                         </button>
+                        <button
+                          type="button"
+                          className={`text-btn ${isSubscribedDemand(item.id) ? 'active-subscription' : ''}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            toggleDemandSubscription(item.id);
+                          }}
+                        >
+                          {isSubscribedDemand(item.id) ? 'Unsubscribe' : 'Subscribe'}
+                        </button>
                         {canEditDemand(item) && (
                           <button type="button" className="text-btn" onClick={(event) => { event.stopPropagation(); startEdit(item); }}>
                             Edit
@@ -3028,242 +3627,251 @@ export default function App() {
               </ul>
             ) : (
               <>
-                <section className="panel-lite spreadsheet-customizer">
-                  <div className="board-head">
-                    <h4>Customize Spreadsheet Columns</h4>
-                    <div className="card-actions">
-                      <button type="button" className="btn-secondary" onClick={applyManagerCallSpreadsheetPreset}>
-                        Manager Call View
-                      </button>
-                      <button type="button" className="btn-secondary" onClick={resetSpreadsheetColumns}>
-                        Reset Defaults
-                      </button>
-                      <button type="button" className="btn-primary" onClick={saveCurrentSpreadsheetView}>
-                        Save View
-                      </button>
+                <div className="card-actions" style={{ marginTop: '0.65rem' }}>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => setShowSpreadsheetCustomizer((current) => !current)}
+                  >
+                    {showSpreadsheetCustomizer ? 'Hide Customize Options' : 'Show Customize Options'}
+                  </button>
+                </div>
+
+                {showSpreadsheetCustomizer && (
+                  <section className="panel-lite spreadsheet-customizer">
+                    <div className="board-head">
+                      <h4>Customize Spreadsheet Columns</h4>
+                      <div className="card-actions">
+                        <button type="button" className="btn-secondary" onClick={resetSpreadsheetColumns}>
+                          Reset Defaults
+                        </button>
+                        <button type="button" className="btn-primary" onClick={saveCurrentSpreadsheetView}>
+                          Save View
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                  <p className="meta">Drag fields into Selected Columns and reorder them. This layout is saved to your account.</p>
+                    <p className="meta">Drag fields into Selected Columns and reorder them. This layout is saved to your account.</p>
 
-                  <div className="spreadsheet-view-save-row">
-                    <input
-                      value={viewDraft.name}
-                      onChange={(event) => setViewDraft((current) => ({ ...current, name: event.target.value }))}
-                      placeholder="View name"
-                    />
-                    <label className="checkbox-inline">
+                    <div className="spreadsheet-view-save-row">
                       <input
-                        type="checkbox"
-                        checked={viewDraft.shared}
-                        onChange={(event) => setViewDraft((current) => ({ ...current, shared: event.target.checked }))}
+                        value={viewDraft.name}
+                        onChange={(event) => setViewDraft((current) => ({ ...current, name: event.target.value }))}
+                        placeholder="View name"
                       />
-                      Shared view
-                    </label>
-                  </div>
+                      <label className="checkbox-inline">
+                        <input
+                          type="checkbox"
+                          checked={viewDraft.shared}
+                          onChange={(event) => setViewDraft((current) => ({ ...current, shared: event.target.checked }))}
+                        />
+                        Shared view
+                      </label>
+                    </div>
 
-                  {userAccessibleSpreadsheetViews.length > 0 && (
-                    <div className="saved-views-list">
-                      <p className="meta"><strong>Saved Views</strong></p>
-                      {userAccessibleSpreadsheetViews.map((view) => (
-                        <div key={view.id} className="saved-view-item">
-                          <span>
-                            {view.name} {view.shared ? '(shared)' : '(personal)'}
-                          </span>
-                          <div className="card-actions">
-                            <button type="button" className="text-btn" onClick={() => applySpreadsheetView(view)}>
-                              Apply
-                            </button>
-                            {(view.ownerId === currentUser.id || currentUser.role === 'administrator') && (
-                              <button type="button" className="text-btn danger" onClick={() => deleteSpreadsheetView(view.id)}>
-                                Delete
+                    {userAccessibleSpreadsheetViews.length > 0 && (
+                      <div className="saved-views-list">
+                        <p className="meta"><strong>Saved Views</strong></p>
+                        {userAccessibleSpreadsheetViews.map((view) => (
+                          <div key={view.id} className="saved-view-item">
+                            <span>
+                              {view.name} {view.shared ? '(shared)' : '(personal)'}
+                            </span>
+                            <div className="card-actions">
+                              <button type="button" className="text-btn" onClick={() => applySpreadsheetView(view)}>
+                                Apply
                               </button>
-                            )}
+                              {(view.ownerId === currentUser.id || isAdmin) && (
+                                <button type="button" className="text-btn danger" onClick={() => deleteSpreadsheetView(view.id)}>
+                                  Delete
+                                </button>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="spreadsheet-filters-grid">
-                    <label>
-                      Program
-                      <select
-                        value={spreadsheetFilters.project}
-                        onChange={(event) => updateSpreadsheetFilter('project', event.target.value)}
-                      >
-                        <option value="All">All</option>
-                        {[...new Set(demands.map((item) => item.project).filter(Boolean))].sort().map((project) => (
-                          <option key={project} value={project}>{project}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      Functional Org
-                      <select
-                        value={spreadsheetFilters.funcOrg}
-                        onChange={(event) => updateSpreadsheetFilter('funcOrg', event.target.value)}
-                      >
-                        <option value="All">All</option>
-                        {[...new Set(demands.map((item) => item.funcOrg).filter(Boolean))].sort().map((org) => (
-                          <option key={org} value={org}>{org}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      Hiring Manager
-                      <input
-                        value={spreadsheetFilters.hiringManager}
-                        onChange={(event) => updateSpreadsheetFilter('hiringManager', event.target.value)}
-                        placeholder="Filter manager"
-                      />
-                    </label>
-                    <label>
-                      Fulfillment Stages
-                      <div className="stage-filter-chip-wrap">
-                        {managerCallFulfillmentStages.map((stage) => (
-                          <label key={stage} className="stage-filter-chip">
-                            <input
-                              type="checkbox"
-                              checked={(spreadsheetFilters.fulfillmentStages || []).includes(stage)}
-                              onChange={() => toggleSpreadsheetFulfillmentStage(stage)}
-                            />
-                            <span>{stage}</span>
-                          </label>
                         ))}
                       </div>
-                    </label>
-                    <label>
-                      Group By
-                      <select
-                        value={spreadsheetFilters.groupBy}
-                        onChange={(event) => updateSpreadsheetFilter('groupBy', event.target.value)}
-                      >
-                        <option value="none">None</option>
-                        <option value="project">Program</option>
-                        <option value="funcOrg">Functional Org</option>
-                        <option value="hiringManager">Hiring Manager</option>
-                        <option value="state">Status</option>
-                        <option value="priority">Priority</option>
-                      </select>
-                    </label>
-                    <button type="button" className="btn-secondary" onClick={clearSpreadsheetFilters}>
-                      Clear Spreadsheet Filters
-                    </button>
-                  </div>
+                    )}
 
-                  {spreadsheetGroups.length > 0 && (
-                    <div className="spreadsheet-groups-summary">
-                      {spreadsheetGroups.map((group) => (
-                        <div key={group.label} className="spreadsheet-group-card">
-                          <strong>{group.label}</strong>
-                          <span>Total: {group.total}</span>
-                          <span>Open: {group.open}</span>
-                          <span>Blocked: {group.blocked}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  <section className="bulk-actions-bar">
-                    <p className="meta"><strong>Bulk Actions ({selectedSpreadsheetDemandIds.length} selected)</strong></p>
                     <div className="spreadsheet-filters-grid">
                       <label>
-                        Status
+                        Program
                         <select
-                          value={bulkEdit.status}
-                          onChange={(event) => setBulkEdit((current) => ({ ...current, status: event.target.value }))}
+                          value={spreadsheetFilters.project}
+                          onChange={(event) => updateSpreadsheetFilter('project', event.target.value)}
                         >
-                          <option value="">No change</option>
-                          {getStatusOptionsForFulfillmentStage(bulkEdit.fulfillmentStage || '').map((status) => (
-                            <option key={status} value={status}>{status}</option>
+                          <option value="All">All</option>
+                          {[...new Set(demands.map((item) => item.project).filter(Boolean))].sort().map((project) => (
+                            <option key={project} value={project}>{project}</option>
                           ))}
                         </select>
                       </label>
                       <label>
-                        Priority
+                        Functional Org
                         <select
-                          value={bulkEdit.priority}
-                          onChange={(event) => setBulkEdit((current) => ({ ...current, priority: event.target.value }))}
+                          value={spreadsheetFilters.funcOrg}
+                          onChange={(event) => updateSpreadsheetFilter('funcOrg', event.target.value)}
                         >
-                          <option value="">No change</option>
-                          {priorities.map((priority) => (
-                            <option key={priority} value={priority}>{priority}</option>
+                          <option value="All">All</option>
+                          {[...new Set(demands.map((item) => item.funcOrg).filter(Boolean))].sort().map((org) => (
+                            <option key={org} value={org}>{org}</option>
                           ))}
                         </select>
                       </label>
                       <label>
                         Hiring Manager
                         <input
-                          value={bulkEdit.hiringManager}
-                          onChange={(event) => setBulkEdit((current) => ({ ...current, hiringManager: event.target.value }))}
-                          placeholder="No change"
+                          value={spreadsheetFilters.hiringManager}
+                          onChange={(event) => updateSpreadsheetFilter('hiringManager', event.target.value)}
+                          placeholder="Filter manager"
                         />
                       </label>
                       <label>
-                        Fulfillment Stage
-                        <select
-                          value={bulkEdit.fulfillmentStage}
-                          onChange={(event) => setBulkEdit((current) => ({ ...current, fulfillmentStage: event.target.value }))}
-                        >
-                          <option value="">No change</option>
-                          {fulfillmentStages.map((stage) => (
-                            <option key={stage} value={stage}>{stage}</option>
+                        Fulfillment Stages
+                        <div className="stage-filter-chip-wrap">
+                          {managerCallFulfillmentStages.map((stage) => (
+                            <label key={stage} className="stage-filter-chip">
+                              <input
+                                type="checkbox"
+                                checked={(spreadsheetFilters.fulfillmentStages || []).includes(stage)}
+                                onChange={() => toggleSpreadsheetFulfillmentStage(stage)}
+                              />
+                              <span>{stage}</span>
+                            </label>
                           ))}
+                        </div>
+                      </label>
+                      <label>
+                        Group By
+                        <select
+                          value={spreadsheetFilters.groupBy}
+                          onChange={(event) => updateSpreadsheetFilter('groupBy', event.target.value)}
+                        >
+                          <option value="none">None</option>
+                          <option value="project">Program</option>
+                          <option value="funcOrg">Functional Org</option>
+                          <option value="hiringManager">Hiring Manager</option>
+                          <option value="state">Status</option>
+                          <option value="priority">Priority</option>
                         </select>
                       </label>
-                      <button type="button" className="btn-primary" onClick={applySpreadsheetBulkEdit}>
-                        Apply Bulk Edit
+                      <button type="button" className="btn-secondary" onClick={clearSpreadsheetFilters}>
+                        Clear Spreadsheet Filters
                       </button>
                     </div>
-                  </section>
 
-                  <div className="spreadsheet-customizer-grid">
-                    <div>
-                      <p className="meta"><strong>Selected Columns</strong></p>
-                      <div
-                        className="column-chip-zone"
-                        onDragOver={(event) => event.preventDefault()}
-                        onDrop={() => handleDropOnSelectedColumns(selectedSpreadsheetFields.length)}
-                      >
-                        {selectedSpreadsheetFields.map((field, index) => (
-                          <div
-                            key={field.key}
-                            className="column-chip selected"
-                            draggable
-                            onDragStart={() => startFieldDrag('selected', field.key)}
-                            onDragOver={(event) => event.preventDefault()}
-                            onDrop={() => handleDropOnSelectedColumns(index)}
+                    {spreadsheetGroups.length > 0 && (
+                      <div className="spreadsheet-groups-summary">
+                        {spreadsheetGroups.map((group) => (
+                          <div key={group.label} className="spreadsheet-group-card">
+                            <strong>{group.label}</strong>
+                            <span>Total: {group.total}</span>
+                            <span>Open: {group.open}</span>
+                            <span>Blocked: {group.blocked}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <section className="bulk-actions-bar">
+                      <p className="meta"><strong>Bulk Actions ({selectedSpreadsheetDemandIds.length} selected)</strong></p>
+                      <div className="spreadsheet-filters-grid">
+                        <label>
+                          Status
+                          <select
+                            value={bulkEdit.status}
+                            onChange={(event) => setBulkEdit((current) => ({ ...current, status: event.target.value }))}
                           >
-                            <span>{field.label}</span>
-                            <button
-                              type="button"
-                              className="text-btn danger"
-                              onClick={() => removeSpreadsheetColumn(field.key)}
+                            <option value="">No change</option>
+                            {getStatusOptionsForFulfillmentStage(bulkEdit.fulfillmentStage || '').map((status) => (
+                              <option key={status} value={status}>{status}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          Priority
+                          <select
+                            value={bulkEdit.priority}
+                            onChange={(event) => setBulkEdit((current) => ({ ...current, priority: event.target.value }))}
+                          >
+                            <option value="">No change</option>
+                            {priorities.map((priority) => (
+                              <option key={priority} value={priority}>{priority}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          Hiring Manager
+                          <input
+                            value={bulkEdit.hiringManager}
+                            onChange={(event) => setBulkEdit((current) => ({ ...current, hiringManager: event.target.value }))}
+                            placeholder="No change"
+                          />
+                        </label>
+                        <label>
+                          Fulfillment Stage
+                          <select
+                            value={bulkEdit.fulfillmentStage}
+                            onChange={(event) => setBulkEdit((current) => ({ ...current, fulfillmentStage: event.target.value }))}
+                          >
+                            <option value="">No change</option>
+                            {fulfillmentStages.map((stage) => (
+                              <option key={stage} value={stage}>{stage}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <button type="button" className="btn-primary" onClick={applySpreadsheetBulkEdit}>
+                          Apply Bulk Edit
+                        </button>
+                      </div>
+                    </section>
+
+                    <div className="spreadsheet-customizer-grid">
+                      <div>
+                        <p className="meta"><strong>Selected Columns</strong></p>
+                        <div
+                          className="column-chip-zone"
+                          onDragOver={(event) => event.preventDefault()}
+                          onDrop={() => handleDropOnSelectedColumns(selectedSpreadsheetFields.length)}
+                        >
+                          {selectedSpreadsheetFields.map((field, index) => (
+                            <div
+                              key={field.key}
+                              className="column-chip selected"
+                              draggable
+                              onDragStart={() => startFieldDrag('selected', field.key)}
+                              onDragOver={(event) => event.preventDefault()}
+                              onDrop={() => handleDropOnSelectedColumns(index)}
                             >
-                              Remove
-                            </button>
-                          </div>
-                        ))}
+                              <span>{field.label}</span>
+                              <button
+                                type="button"
+                                className="text-btn danger"
+                                onClick={() => removeSpreadsheetColumn(field.key)}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
 
-                    <div>
-                      <p className="meta"><strong>Available Fields</strong></p>
-                      <div className="column-chip-zone">
-                        {availableSpreadsheetFields.map((field) => (
-                          <div
-                            key={field.key}
-                            className="column-chip"
-                            draggable
-                            onDragStart={() => startFieldDrag('available', field.key)}
-                          >
-                            <span>{field.label}</span>
-                          </div>
-                        ))}
+                      <div>
+                        <p className="meta"><strong>Available Fields</strong></p>
+                        <div className="column-chip-zone">
+                          {availableSpreadsheetFields.map((field) => (
+                            <div
+                              key={field.key}
+                              className="column-chip"
+                              draggable
+                              onDragStart={() => startFieldDrag('available', field.key)}
+                            >
+                              <span>{field.label}</span>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </section>
+                  </section>
+                )}
 
                 <div className="spreadsheet-wrap" aria-label="Demand spreadsheet table">
                   <table className="spreadsheet-table">
@@ -3281,6 +3889,24 @@ export default function App() {
                           <th key={field.key}>{field.label}</th>
                         ))}
                         <th>Actions</th>
+                      </tr>
+                      <tr className="spreadsheet-filter-row">
+                        <th>
+                          <button type="button" className="text-btn" onClick={clearSpreadsheetColumnFilters}>
+                            Clear
+                          </button>
+                        </th>
+                        {selectedSpreadsheetFields.map((field) => (
+                          <th key={`filter-${field.key}`}>
+                            <input
+                              value={spreadsheetColumnFilters[field.key] || ''}
+                              onChange={(event) => updateSpreadsheetColumnFilter(field.key, event.target.value)}
+                              placeholder={`Filter ${field.label}`}
+                              aria-label={`Filter by ${field.label}`}
+                            />
+                          </th>
+                        ))}
+                        <th />
                       </tr>
                     </thead>
                     <tbody>
@@ -3313,6 +3939,13 @@ export default function App() {
                                 )}
                                 <button type="button" className="text-btn" onClick={() => openDemandDetails(item.id)}>
                                   View
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`text-btn ${isSubscribedDemand(item.id) ? 'active-subscription' : ''}`}
+                                  onClick={() => toggleDemandSubscription(item.id)}
+                                >
+                                  {isSubscribedDemand(item.id) ? 'Unsub' : 'Sub'}
                                 </button>
                                 {canEditDemand(item) && (
                                   <button type="button" className="text-btn" onClick={() => startEdit(item)}>
@@ -3358,17 +3991,17 @@ export default function App() {
             <form className="users-form" onSubmit={submitUserForm}>
               <div className="field-row">
                 <label>
-                  Display Name
+                  First Name
                   <input
-                    value={userForm.displayName}
-                    onChange={(event) => setUserForm((current) => ({ ...current, displayName: event.target.value }))}
+                    value={userForm.firstName}
+                    onChange={(event) => setUserForm((current) => ({ ...current, firstName: event.target.value }))}
                   />
                 </label>
                 <label>
-                  Username
+                  Last Name
                   <input
-                    value={userForm.username}
-                    onChange={(event) => setUserForm((current) => ({ ...current, username: event.target.value }))}
+                    value={userForm.lastName}
+                    onChange={(event) => setUserForm((current) => ({ ...current, lastName: event.target.value }))}
                   />
                 </label>
               </div>
@@ -3381,6 +4014,18 @@ export default function App() {
                     value={userForm.email}
                     onChange={(event) => setUserForm((current) => ({ ...current, email: event.target.value }))}
                   />
+                </label>
+                <label>
+                  Functional Group
+                  <select
+                    value={userForm.funcOrg}
+                    onChange={(event) => setUserForm((current) => ({ ...current, funcOrg: event.target.value }))}
+                  >
+                    <option value="">Select group</option>
+                    {functionalOrgOptions.map((option) => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
                 </label>
                 <label>
                   Password {editingUserId ? '(optional on edit)' : ''}
@@ -3422,7 +4067,7 @@ export default function App() {
                   <div>
                     <p className="users-name">{user.displayName}</p>
                     <p className="meta">
-                      {user.username} · {user.email || 'No email'} · {roleLabels[user.role]}
+                      {user.email || 'No email'} · {user.funcOrg || 'No group'} · {roleLabels[user.role]}
                     </p>
                   </div>
                   <div className="card-actions">
@@ -3520,7 +4165,7 @@ export default function App() {
                         onChange={() => toggleGroupMember(manager.id)}
                       />
                       <span>
-                        {manager.displayName} ({manager.email || manager.username})
+                        {manager.displayName} ({manager.email || 'No email'})
                       </span>
                     </label>
                   ))}
@@ -3560,9 +4205,9 @@ export default function App() {
                     {group.members.map((member) => (
                       <li key={member.id} className="group-member-card">
                         <p className="users-name">{member.displayName}</p>
-                        <p className="meta">Username: {member.username}</p>
                         <p className="meta">Email: {member.email || 'No email'}</p>
                         <p className="meta">Role: {roleLabels[member.role]}</p>
+                        <p className="meta">Group: {member.funcOrg || 'No group'}</p>
                         <p className="meta">
                           Assigned Demands: {member.assignedCount} · Open: {member.openCount} · Blocked: {member.blockedCount}
                         </p>
@@ -3750,6 +4395,350 @@ export default function App() {
                 ))}
               </ul>
             </section>
+          </section>
+        </>
+      )}
+
+      {page === pages.managerCallMetrics && (
+        <>
+          <section className="hero">
+            <h2>Manager Call Metrics</h2>
+            <p className="subhead">
+              Focused metrics for manager call stages: {managerCallFulfillmentStages.join(', ')}.
+            </p>
+            <div className="card-actions" style={{ marginTop: '0.65rem' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setShowManagerCallCustomizer((current) => !current)}
+              >
+                {showManagerCallCustomizer ? 'Hide Customize Options' : 'Show Customize Options'}
+              </button>
+            </div>
+          </section>
+
+          <section className="metrics-grid" aria-label="Manager call metrics summary">
+            <article className="metric-card">
+              <p>Total In Manager Call</p>
+              <h2>{managerCallMetrics.total}</h2>
+            </article>
+            <article className="metric-card">
+              <p>Open</p>
+              <h2>{managerCallMetrics.open}</h2>
+            </article>
+            <article className="metric-card warn">
+              <p>Blocked</p>
+              <h2>{managerCallMetrics.blocked}</h2>
+            </article>
+            <button
+              type="button"
+              className="metric-card metric-card-action"
+              onClick={() => openSpreadsheetForDemands(managerCallDemands.map((item) => item.id), 'Manager Call Demands')}
+              disabled={managerCallDemands.length === 0}
+            >
+              <p>Open In Spreadsheet</p>
+              <h2>{managerCallDemands.length}</h2>
+            </button>
+          </section>
+
+          <section className="panel metrics-panel">
+            <div className="board-head">
+              <div>
+                <h3>By Fulfillment Stage</h3>
+                <p className="meta">Distribution across manager call stages.</p>
+              </div>
+              <button type="button" className="btn-secondary" onClick={applyManagerCallSpreadsheetPreset}>
+                Apply Manager Call Spreadsheet View
+              </button>
+            </div>
+            <ul className="metrics-list" aria-label="Manager call stage distribution">
+              {managerCallMetrics.byStage.map((bucket) => (
+                <li key={bucket.stage} className="metrics-item">
+                  <div>
+                    <h4>{bucket.stage}</h4>
+                  </div>
+                  <strong>{bucket.count}</strong>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          {showManagerCallCustomizer && (
+            <section className="panel-lite spreadsheet-customizer" style={{ marginTop: '1rem' }}>
+              <div className="board-head">
+                <h4>Customize Manager Call Columns</h4>
+                <div className="card-actions">
+                  <button type="button" className="btn-secondary" onClick={resetSpreadsheetColumns}>
+                    Reset Defaults
+                  </button>
+                </div>
+              </div>
+              <p className="meta">Column changes apply to spreadsheet views and are saved per user.</p>
+
+              <div className="spreadsheet-customizer-grid">
+                <div>
+                  <p className="meta"><strong>Selected Columns</strong></p>
+                  <div
+                    className="column-chip-zone"
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={() => handleDropOnSelectedColumns(selectedSpreadsheetFields.length)}
+                  >
+                    {selectedSpreadsheetFields.map((field, index) => (
+                      <div
+                        key={field.key}
+                        className="column-chip selected"
+                        draggable
+                        onDragStart={() => startFieldDrag('selected', field.key)}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={() => handleDropOnSelectedColumns(index)}
+                      >
+                        <span>{field.label}</span>
+                        <button
+                          type="button"
+                          className="text-btn danger"
+                          onClick={() => removeSpreadsheetColumn(field.key)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="meta"><strong>Available Fields</strong></p>
+                  <div className="column-chip-zone">
+                    {availableSpreadsheetFields.map((field) => (
+                      <div
+                        key={field.key}
+                        className="column-chip"
+                        draggable
+                        onDragStart={() => startFieldDrag('available', field.key)}
+                      >
+                        <span>{field.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+
+          <section className="panel metrics-panel" style={{ marginTop: '1rem' }}>
+            <h3>Manager Call Demand Spreadsheet</h3>
+            <p className="meta">All demands in manager call stages, shown in spreadsheet format.</p>
+
+            <div className="spreadsheet-wrap" aria-label="Manager call spreadsheet table">
+              <table className="spreadsheet-table">
+                <thead>
+                  <tr>
+                    {selectedSpreadsheetFields.map((field) => (
+                      <th key={field.key}>{field.label}</th>
+                    ))}
+                    <th>Actions</th>
+                  </tr>
+                  <tr className="spreadsheet-filter-row">
+                    {selectedSpreadsheetFields.map((field) => (
+                      <th key={`manager-filter-${field.key}`}>
+                        <input
+                          value={spreadsheetColumnFilters[field.key] || ''}
+                          onChange={(event) => updateSpreadsheetColumnFilter(field.key, event.target.value)}
+                          placeholder={`Filter ${field.label}`}
+                          aria-label={`Filter manager call by ${field.label}`}
+                        />
+                      </th>
+                    ))}
+                    <th>
+                      <button type="button" className="text-btn" onClick={clearSpreadsheetColumnFilters}>
+                        Clear
+                      </button>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {managerCallSpreadsheetDemands.length === 0 ? (
+                    <tr>
+                      <td colSpan={selectedSpreadsheetFields.length + 1}>
+                        <p className="empty-state" style={{ margin: '0.8rem 0' }}>
+                          No demands currently in manager call stages.
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    managerCallSpreadsheetDemands.map((item) => (
+                      <tr key={item.id}>
+                        {selectedSpreadsheetFields.map((field) => (
+                          <td key={`${item.id}-${field.key}`}>{renderSpreadsheetCell(item, field)}</td>
+                        ))}
+                        <td>
+                          <div className="card-actions">
+                            <button type="button" className="text-btn" onClick={() => openDemandDetails(item.id)}>
+                              Open
+                            </button>
+                            <button
+                              type="button"
+                              className={`text-btn ${isSubscribedDemand(item.id) ? 'active-subscription' : ''}`}
+                              onClick={() => toggleDemandSubscription(item.id)}
+                            >
+                              {isSubscribedDemand(item.id) ? 'Unsub' : 'Sub'}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      )}
+
+      {page === pages.allOpen && (
+        <>
+          <section className="hero">
+            <h2>All Open Demands</h2>
+            <p className="subhead">
+              Complete view of all open demands with spreadsheet filters.
+            </p>
+            <div className="card-actions" style={{ marginTop: '0.65rem' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setShowAllOpenCustomizer((current) => !current)}
+              >
+                {showAllOpenCustomizer ? 'Hide Customize Options' : 'Show Customize Options'}
+              </button>
+            </div>
+          </section>
+
+          {showAllOpenCustomizer && (
+            <section className="panel-lite spreadsheet-customizer" style={{ marginTop: '1rem' }}>
+              <div className="board-head">
+                <h4>Customize Columns</h4>
+                <div className="card-actions">
+                  <button type="button" className="btn-secondary" onClick={resetSpreadsheetColumns}>
+                    Reset Defaults
+                  </button>
+                </div>
+              </div>
+              <p className="meta">Column changes apply to spreadsheet views and are saved per user.</p>
+
+              <div className="spreadsheet-customizer-grid">
+                <div>
+                  <p className="meta"><strong>Selected Columns</strong></p>
+                  <div
+                    className="column-chip-zone"
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={() => handleDropOnSelectedColumns(selectedSpreadsheetFields.length)}
+                  >
+                    {selectedSpreadsheetFields.map((field, index) => (
+                      <div
+                        key={field.key}
+                        className="column-chip selected"
+                        draggable
+                        onDragStart={() => startFieldDrag('selected', field.key)}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={() => handleDropOnSelectedColumns(index)}
+                      >
+                        <span>{field.label}</span>
+                        <button
+                          type="button"
+                          className="text-btn danger"
+                          onClick={() => removeSpreadsheetColumn(field.key)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="meta"><strong>Available Fields</strong></p>
+                  <div className="column-chip-zone">
+                    {availableSpreadsheetFields.map((field) => (
+                      <div
+                        key={field.key}
+                        className="column-chip"
+                        draggable
+                        onDragStart={() => startFieldDrag('available', field.key)}
+                      >
+                        <span>{field.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+
+          <section className="panel metrics-panel" style={{ marginTop: '1rem' }}>
+            <h3>Open Demands Spreadsheet</h3>
+            <p className="meta">{allOpenDemands.length} open demands shown in spreadsheet format with column filters.</p>
+
+            <div className="spreadsheet-wrap" aria-label="All open demands spreadsheet table">
+              <table className="spreadsheet-table">
+                <thead>
+                  <tr>
+                    {selectedSpreadsheetFields.map((field) => (
+                      <th key={field.key}>{field.label}</th>
+                    ))}
+                    <th>Actions</th>
+                  </tr>
+                  <tr className="spreadsheet-filter-row">
+                    {selectedSpreadsheetFields.map((field) => (
+                      <th key={`allopen-filter-${field.key}`}>
+                        <input
+                          value={spreadsheetColumnFilters[field.key] || ''}
+                          onChange={(event) => updateSpreadsheetColumnFilter(field.key, event.target.value)}
+                          placeholder={`Filter ${field.label}`}
+                          aria-label={`Filter open demands by ${field.label}`}
+                        />
+                      </th>
+                    ))}
+                    <th>
+                      <button type="button" className="text-btn" onClick={clearSpreadsheetColumnFilters}>
+                        Clear
+                      </button>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allOpenSpreadsheetDemands.length === 0 ? (
+                    <tr>
+                      <td colSpan={selectedSpreadsheetFields.length + 1}>
+                        <p className="empty-state" style={{ margin: '0.8rem 0' }}>
+                          No open demands match your filters.
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    allOpenSpreadsheetDemands.map((item) => (
+                      <tr key={item.id}>
+                        {selectedSpreadsheetFields.map((field) => (
+                          <td key={`${item.id}-${field.key}`}>{renderSpreadsheetCell(item, field)}</td>
+                        ))}
+                        <td>
+                          <div className="card-actions">
+                            <button type="button" className="text-btn" onClick={() => openDemandDetails(item.id)}>
+                              Open
+                            </button>
+                            <button
+                              type="button"
+                              className={`text-btn ${isSubscribedDemand(item.id) ? 'active-subscription' : ''}`}
+                              onClick={() => toggleDemandSubscription(item.id)}
+                            >
+                              {isSubscribedDemand(item.id) ? 'Unsub' : 'Sub'}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </section>
         </>
       )}
@@ -4494,9 +5483,9 @@ export default function App() {
                 <li key={member.id} className="group-member-card">
                   <p className="users-name">{member.displayName}</p>
                   <div className="detail-list detail-list-columns">
-                    <p><strong>Username:</strong> {member.username}</p>
                     <p><strong>Email:</strong> {member.email || 'No email'}</p>
                     <p><strong>Role:</strong> {roleLabels[member.role]}</p>
+                    <p><strong>Group:</strong> {member.funcOrg || 'No group'}</p>
                     <p><strong>Assigned Demands:</strong> {member.assignedCount}</p>
                     <p><strong>Open Demands:</strong> {member.openCount}</p>
                     <p><strong>Blocked Demands:</strong> {member.blockedCount}</p>

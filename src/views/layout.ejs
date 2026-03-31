@@ -15,6 +15,27 @@
     nav form { display: inline; }
     nav button { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); color: #fff; cursor: pointer; padding: 0.4rem 0.8rem; border-radius: 4px; font-size: 0.9rem; transition: background 0.2s; }
     nav button:hover { background: rgba(255,255,255,0.35); }
+    .preview-form { display: inline-flex; align-items: center; gap: 0.4rem; margin-left: 0.35rem; }
+    .preview-form label { margin: 0; color: rgba(255,255,255,0.85); font-size: 0.78rem; font-weight: 500; }
+    .preview-form select {
+      width: auto;
+      padding: 0.28rem 0.45rem;
+      border-radius: 4px;
+      border: 1px solid rgba(255,255,255,0.45);
+      background: rgba(255,255,255,0.95);
+      color: #1a1a1a;
+      font-size: 0.8rem;
+    }
+    .preview-banner {
+      margin: 1rem auto 0;
+      max-width: 1100px;
+      padding: 0.65rem 1rem;
+      border-radius: 6px;
+      background: #fff3cd;
+      border: 1px solid #ffe69c;
+      color: #664d03;
+      font-size: 0.9rem;
+    }
     .badge { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 12px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
     .badge-admin { background: #fce8e6; color: #c5221f; }
     .badge-hiring_manager { background: #e8f0fe; color: #1a73e8; }
@@ -59,6 +80,16 @@
       <% if (user.role === 'admin') { %>
         <a href="/admin/users">Manage Users</a>
       <% } %>
+      <% if (user.actualRole === 'admin') { %>
+        <form class="preview-form" action="/auth/role-preview" method="POST">
+          <label for="role-preview">View as</label>
+          <select id="role-preview" name="role" onchange="this.form.submit()">
+            <option value="admin" <%= user.role === 'admin' ? 'selected' : '' %>>admin</option>
+            <option value="hiring_manager" <%= user.role === 'hiring_manager' ? 'selected' : '' %>>hiring manager</option>
+            <option value="basic_user" <%= user.role === 'basic_user' ? 'selected' : '' %>>basic user</option>
+          </select>
+        </form>
+      <% } %>
       <span class="badge badge-<%= user.role %>"><%= user.role.replace('_', ' ') %></span>
       <span style="color:rgba(255,255,255,0.8);font-size:0.85rem;"><%= user.username %></span>
       <form action="/auth/logout" method="POST">
@@ -66,6 +97,13 @@
       </form>
     </div>
   </nav>
+  <% } %>
+
+  <% if (typeof user !== 'undefined' && user && user.isRolePreviewing) { %>
+    <div class="preview-banner">
+      Preview mode active. You are signed in as admin but currently viewing permissions as
+      <strong><%= user.role.replace('_', ' ') %></strong>.
+    </div>
   <% } %>
 
   <div class="container">

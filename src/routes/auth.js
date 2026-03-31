@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { User } = require('../models');
+const { requireAuth } = require('../middleware/auth');
 
 // GET /auth/register
 router.get('/register', (req, res) => {
@@ -96,6 +97,7 @@ router.post('/login', async (req, res) => {
     req.session.userId = user.id;
     req.session.username = user.username;
     req.session.userRole = user.role;
+    delete req.session.previewRole;
 
     req.session.save((err) => {
       if (err) {
@@ -108,6 +110,42 @@ router.post('/login', async (req, res) => {
     req.flash('error', 'An error occurred. Please try again.');
     res.redirect('/auth/login');
   }
+});
+
+// POST /auth/role-preview - switch admin role preview mode
+router.post('/role-preview', requireAuth, (req, res) => {
+  if (req.session.userRole !== User.ROLES.ADMIN) {
+    req.flash('error', 'Only admins can use role preview mode.');
+    return res.redirect('/demands');
+  }
+
+  const { role } = req.body;
+  const previewableRoles = [User.ROLES.ADMIN, User.ROLES.HIRING_MANAGER, User.ROLES.BASIC_USER];
+  if (!previewableRoles.includes(role)) {
+    req.flash('error', 'Invalid preview role selected.');
+    return res.redirect(req.headers.referer || '/demands');
+  }
+
+  req.session.previewRole = role;
+
+  const label = role.replace('_', ' ');
+  if (role === User.ROLES.ADMIN) {
+    req.flash('success', 'Role preview reset to admin view.');
+  } else {
+    req.flash('success', `Now previewing as ${label}.`);
+  }
+
+  req.session.save((err) => {
+    if (err) {
+      req.flash('error', 'Failed to update preview role.');
+      return res.redirect('/demands');
+    }
+
+    const fallback = req.headers.referer && req.headers.referer.includes('/auth/role-preview')
+      ? '/demands'
+      : (req.headers.referer || '/demands');
+    return res.redirect(fallback);
+  });
 });
 
 // POST /auth/logout

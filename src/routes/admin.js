@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { User } = require('../models');
-const { requireRole } = require('../middleware/auth');
+const { requireRole, getSessionUser } = require('../middleware/auth');
 
 // All admin routes require admin role
 router.use(requireRole(User.ROLES ? User.ROLES.ADMIN : 'admin'));
@@ -18,11 +18,7 @@ router.get('/users', async (req, res) => {
       users,
       roles: User.ROLES,
       currentUserId: req.session.userId,
-      user: {
-        id: req.session.userId,
-        username: req.session.username,
-        role: req.session.userRole,
-      },
+      user: getSessionUser(req),
       error: req.flash('error'),
       success: req.flash('success'),
     });
