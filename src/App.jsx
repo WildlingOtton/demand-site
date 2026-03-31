@@ -2234,15 +2234,18 @@ export default function App() {
     if (!demand) return;
 
     const recipientEmails = new Set();
-    
-    const hiringManagerEmail = users
-      .find((u) => normalizeString(u.displayName) === normalizeString(demand.hiringManager || demand.owner))
-      ?.email || (demand.hiringManager ? 'unknown' : null);
-    
-    if (hiringManagerEmail) {
-      const hmPrefs = notificationPreferences[users.find(u => u.email === hiringManagerEmail)?.id] || getDefaultNotificationPreferences();
-      if ((notificationType === 'state-change' && hmPrefs.emailOnStateChange) || (notificationType === 'comment' && hmPrefs.emailOnComment)) {
-        recipientEmails.add(hiringManagerEmail);
+
+    // Match HM by display name — only add if a real user is found.
+    const hmUser = users.find(
+      (u) => normalizeString(u.displayName) === normalizeString(demand.hiringManager || demand.owner)
+    );
+    if (hmUser) {
+      const hmPrefs = notificationPreferences[hmUser.id] || getDefaultNotificationPreferences();
+      if (
+        (notificationType === 'state-change' && hmPrefs.emailOnStateChange) ||
+        (notificationType === 'comment' && hmPrefs.emailOnComment)
+      ) {
+        recipientEmails.add(hmUser.email);
       }
     }
 
@@ -2251,10 +2254,18 @@ export default function App() {
       const subscriber = users.find((u) => u.id === subId);
       if (subscriber) {
         const subPrefs = notificationPreferences[subId] || getDefaultNotificationPreferences();
-        if ((notificationType === 'state-change' && subPrefs.emailOnStateChange) || (notificationType === 'comment' && subPrefs.emailOnComment)) {
+        if (
+          (notificationType === 'state-change' && subPrefs.emailOnStateChange) ||
+          (notificationType === 'comment' && subPrefs.emailOnComment)
+        ) {
           recipientEmails.add(subscriber.email);
         }
       }
+    }
+
+    // Don't notify the person who triggered the action about their own activity.
+    if (currentUser?.email) {
+      recipientEmails.delete(currentUser.email);
     }
 
     if (recipientEmails.size === 0) return;
@@ -2534,6 +2545,18 @@ export default function App() {
       });
 
       setDemands((current) => [...createdDemands, ...current]);
+
+      // Auto-subscribe the creator to each new demand they created.
+      setSubscriptions((current) => {
+        const next = { ...current };
+        for (const d of createdDemands) {
+          const existing = Array.isArray(next[d.id]) ? next[d.id] : [];
+          if (!existing.includes(currentUser.id)) {
+            next[d.id] = [...existing, currentUser.id];
+          }
+        }
+        return next;
+      });
 
       await notifyDemandCreated(createdDemands);
       setAppStatus(`Created ${createdDemands.length} demand${createdDemands.length > 1 ? 's' : ''} successfully.`);
