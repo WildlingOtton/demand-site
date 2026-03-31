@@ -8,6 +8,7 @@ const pages = {
   metrics: 'metrics',
   managerCallMetrics: 'manager-call-metrics',
   allOpen: 'all-open-demands',
+  allDestaff: 'all-destaff',
   destaff: 'destaff',
   adminUsers: 'admin-users',
   addDemand: 'add-demand'
@@ -943,6 +944,12 @@ export default function App() {
   }, [page]);
 
   useEffect(() => {
+    if (page !== pages.allDestaff) {
+      // Placeholder for allDestaff page state cleanup if needed
+    }
+  }, [page]);
+
+  useEffect(() => {
     if (!import.meta.env.DEV) return;
 
     setDemands((current) => {
@@ -1806,6 +1813,10 @@ export default function App() {
     [allOpenDemands, spreadsheetColumnFilters]
   );
 
+  const openDestaffRecords = useMemo(() => {
+    return destaffRecords.filter((r) => r.status === 'Available' || r.status === 'Interviewing');
+  }, [destaffRecords]);
+
   const managerCallMetrics = useMemo(() => {
     const byStage = managerCallFulfillmentStages.map((stage) => ({
       stage,
@@ -1859,6 +1870,10 @@ export default function App() {
 
   function goToAllOpenDemands() {
     setPage(pages.allOpen);
+  }
+
+  function goToAllDestaff() {
+    setPage(pages.allDestaff);
   }
 
   function goToManagerCallMetrics() {
@@ -3197,6 +3212,13 @@ export default function App() {
               onClick={goToDestaff}
             >
               Destaff
+            </button>
+            <button
+              type="button"
+              className={`btn-nav ${page === pages.allDestaff ? 'active' : ''}`}
+              onClick={goToAllDestaff}
+            >
+              All Open Destaff
             </button>
             {isAdmin && (
               <button
@@ -4733,6 +4755,80 @@ export default function App() {
                             </button>
                           </div>
                         </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      )}
+
+      {page === pages.allDestaff && (
+        <>
+          <section className="hero">
+            <h2>All Open Destaff</h2>
+            <p className="subhead">
+              All employees available or interviewing for new placement.
+            </p>
+          </section>
+
+          <section className="metrics-grid" aria-label="Open destaff summary">
+            <article className="metric-card">
+              <p>Available</p>
+              <h2>{destaffRecords.filter((r) => r.status === 'Available').length}</h2>
+            </article>
+            <article className="metric-card">
+              <p>Interviewing</p>
+              <h2>{destaffRecords.filter((r) => r.status === 'Interviewing').length}</h2>
+            </article>
+          </section>
+
+          <section className="panel metrics-panel" style={{ marginTop: '1rem' }}>
+            <h3>Open Destaff Records</h3>
+            <p className="meta">{openDestaffRecords.length} people currently available or interviewing.</p>
+
+            <div style={{ overflowX: 'auto' }}>
+              <table className="spreadsheet-table" aria-label="Open destaff records table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Current Program</th>
+                    <th>Current Role</th>
+                    <th>Func Org</th>
+                    <th>Clearance</th>
+                    <th>Available Date</th>
+                    <th>Status</th>
+                    <th>Skills</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {openDestaffRecords.length === 0 ? (
+                    <tr>
+                      <td colSpan={9}>
+                        <p className="empty-state" style={{ margin: '0.8rem 0' }}>
+                          No destaff people currently available or interviewing.
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    openDestaffRecords.map((record) => (
+                      <tr key={record.id || `${record.employeeName}-${record.availableDate}`}>
+                        <td>{record.employeeName}</td>
+                        <td>{record.currentProgram}</td>
+                        <td>{record.currentRole}</td>
+                        <td>{record.funcOrg}</td>
+                        <td>{record.clearance}</td>
+                        <td>{record.availableDate}</td>
+                        <td>
+                          <span className={`destaff-status-${record.status?.toLowerCase().replace(/\\s+/g, '-')}`}>
+                            {record.status}
+                          </span>
+                        </td>
+                        <td>{record.skills}</td>
+                        <td>{record.notes}</td>
                       </tr>
                     ))
                   )}
