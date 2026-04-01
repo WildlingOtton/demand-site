@@ -755,6 +755,7 @@ export default function App() {
   const [csvImportName, setCsvImportName] = useState('');
   const [csvImportStatus, setCsvImportStatus] = useState('');
   const [appStatus, setAppStatus] = useState('');
+  const [toast, setToast] = useState(null);
   const [profileForm, setProfileForm] = useState({ firstName: '', lastName: '', email: '', funcOrg: '' });
   const [profileStatus, setProfileStatus] = useState('');
   const [passwordForm, setPasswordForm] = useState({ current: '', next: '', confirm: '' });
@@ -845,6 +846,15 @@ export default function App() {
   useEffect(() => {
     saveDestaffRecords(destaffRecords);
   }, [destaffRecords]);
+
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => {
+        setToast(null);
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
 
   useEffect(() => {
     setDemands((current) => {
@@ -2559,7 +2569,9 @@ export default function App() {
       });
 
       await notifyDemandCreated(createdDemands);
-      setAppStatus(`Created ${createdDemands.length} demand${createdDemands.length > 1 ? 's' : ''} successfully.`);
+      const message = `Created ${createdDemands.length} demand${createdDemands.length > 1 ? 's' : ''} successfully.`;
+      setToast(message);
+      setAppStatus(message);
 
       setCsvImportRows([]);
       setCsvImportName('');
@@ -6069,6 +6081,12 @@ export default function App() {
             </ul>
           </article>
         </section>
+      )}
+
+      {toast && (
+        <div className="toast-notification">
+          <p>{toast}</p>
+        </div>
       )}
     </main>
   );

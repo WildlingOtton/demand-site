@@ -1261,3 +1261,46 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
 }
+
+.toast-notification {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  background: var(--accent);
+  color: #fff;
+  padding: 1rem 1.5rem;
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  animation: slideInUp 0.3s ease-out, slideOutDown 0.3s ease-out 3.7s forwards;
+  z-index: 9999;
+  max-width: 400px;
+  word-wrap: break-word;
+  font-weight: 500;
+}
+
+.toast-notification p {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+@keyframes slideInUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOutDown {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
